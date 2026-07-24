@@ -157,7 +157,7 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
   // 18. Offline Queue & Sync
   it('18. Queues offline transactions when offline', () => {
     const tx = queueSyncTransaction('ADD_PLAYER', { name: 'Test Player' });
-    expect(tx.status).toBe('PENDING_CLOUD_SYNC');
+    expect(tx.status).toBe('LOCAL_LOGGED');
     const queue = getSyncQueue();
     expect(queue.length).toBeGreaterThan(0);
   });

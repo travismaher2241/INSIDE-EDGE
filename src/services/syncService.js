@@ -1,39 +1,54 @@
+import { safeStorageGet, safeStorageSet } from './storage';
+
 /**
- * Offline Queue & Cloud Sync Manager for Inside Edge
+ * Local Transaction Log & Offline Activity Ledger for Inside Edge
+ * Local-First Product Architecture: Retains explicit audit logs of all domain mutations.
+ * Never clears queued operations without real acknowledged remote persistence.
  */
 
+const SYNC_QUEUE_KEY = 'sync_queue';
+
 export function getSyncQueue() {
-  const saved = localStorage.getItem('insideedge_sync_queue');
-  return saved ? JSON.parse(saved) : [];
+  return safeStorageGet(SYNC_QUEUE_KEY, []);
 }
 
 export function saveSyncQueue(queue) {
-  localStorage.setItem('insideedge_sync_queue', JSON.stringify(queue));
+  return safeStorageSet(SYNC_QUEUE_KEY, queue);
 }
 
 export function queueSyncTransaction(actionType, payload) {
   const queue = getSyncQueue();
   const tx = {
-    id: 'tx_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+    id: 'tx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     timestamp: new Date().toISOString(),
     actionType,
     payload,
-    status: 'PENDING_CLOUD_SYNC'
+    status: 'LOCAL_LOGGED'
   };
   queue.push(tx);
   saveSyncQueue(queue);
   return tx;
 }
 
-export async function flushSyncQueue(isOnline = true) {
-  if (!isOnline) {
-    return { success: false, syncedCount: 0, reason: 'LOCAL_ONLY_OFFLINE' };
+export function clearSyncQueue() {
+  saveSyncQueue([]);
+  return true;
+}
+
+export async function flushSyncQueue(isOnline = false) {
+  const queue = getSyncQueue();
+  if (queue.length === 0) {
+    return { success: true, syncedCount: 0, mode: 'LOCAL_ONLY_STATION' };
   }
 
-  const queue = getSyncQueue();
-  if (queue.length === 0) return { success: true, syncedCount: 0 };
-
-  // Simulate flushing to Firestore
-  localStorage.setItem('insideedge_sync_queue', JSON.stringify([]));
-  return { success: true, syncedCount: queue.length };
+  // Local-First Workstation Boundary:
+  // Retain all transaction records in the local ledger.
+  // Do NOT clear or delete uncommitted offline records without an active remote backend.
+  return {
+    success: true,
+    syncedCount: 0,
+    pendingCount: queue.length,
+    mode: 'LOCAL_ONLY_STATION',
+    message: `All ${queue.length} local operations securely logged in workstation ledger.`
+  };
 }

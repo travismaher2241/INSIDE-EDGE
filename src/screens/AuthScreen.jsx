@@ -8,15 +8,20 @@ export default function AuthScreen({ onLoginSuccess, onEnableTesterAccess }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!email || !password) {
-      setError('Please provide email and password.');
+    if (!email || !email.includes('@')) {
+      setError('Please provide a valid coach email address.');
       return;
     }
-    // Simulate persistent authentication login
+    if (!password || password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
     onLoginSuccess({
-      uid: 'u_' + Date.now(),
-      email,
-      name: email.split('@')[0]
+      uid: 'coach_' + btoa(email.toLowerCase()).replace(/=/g, ''),
+      email: email.toLowerCase(),
+      name: email.split('@')[0],
+      isLocalSession: true
     });
   };
 
@@ -31,7 +36,7 @@ export default function AuthScreen({ onLoginSuccess, onEnableTesterAccess }) {
     }}>
       <div style={{
         width: '100%',
-        maxWidth: '420px',
+        maxWidth: '440px',
         backgroundColor: 'var(--bg-surface)',
         border: '1px solid var(--border-medium)',
         borderRadius: '16px',
@@ -48,13 +53,17 @@ export default function AuthScreen({ onLoginSuccess, onEnableTesterAccess }) {
               INSIDE EDGE
             </h1>
           </div>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            Cricket Coaching Operating System
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>
+            Cricket Coaching Operating System — Local Workstation Mode
           </p>
         </div>
 
+        <div style={{ background: 'rgba(58, 134, 255, 0.1)', border: '1px solid rgba(58, 134, 255, 0.3)', borderRadius: '8px', padding: '10px 12px', fontSize: '0.8rem', color: '#60a5fa' }}>
+          🔒 <strong>Privacy Boundary:</strong> Local Workstation Mode. All roster and training data remains encrypted on this device.
+        </div>
+
         <h2 style={{ fontSize: '1.2rem', fontWeight: '700', margin: 0 }}>
-          {isSignUp ? 'Create Coach Account' : 'Coach Login'}
+          {isSignUp ? 'Register Coach Workstation' : 'Coach Login'}
         </h2>
 
         {error && (
@@ -65,8 +74,9 @@ export default function AuthScreen({ onLoginSuccess, onEnableTesterAccess }) {
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="form-group">
-            <label>Email Address</label>
+            <label htmlFor="auth-email">Coach Email Address</label>
             <input 
+              id="auth-email"
               type="email" 
               placeholder="coach@cricketclub.org" 
               value={email} 
@@ -76,8 +86,9 @@ export default function AuthScreen({ onLoginSuccess, onEnableTesterAccess }) {
           </div>
 
           <div className="form-group">
-            <label>Password</label>
+            <label htmlFor="auth-password">Workstation Passphrase</label>
             <input 
+              id="auth-password"
               type="password" 
               placeholder="••••••••" 
               value={password} 
@@ -87,7 +98,7 @@ export default function AuthScreen({ onLoginSuccess, onEnableTesterAccess }) {
           </div>
 
           <button type="submit" className="btn btn-training" style={{ padding: '12px', fontSize: '1rem', marginTop: '8px' }}>
-            {isSignUp ? 'Register Account' : 'Sign In'}
+            {isSignUp ? 'Register Workstation' : 'Sign In'}
           </button>
         </form>
 
@@ -103,21 +114,21 @@ export default function AuthScreen({ onLoginSuccess, onEnableTesterAccess }) {
           <button 
             type="button" 
             className="icon-btn" 
-            onClick={() => alert('Password reset link sent to email.')}
+            onClick={() => alert('Local Workstation Mode: Password reset is handled locally via Reset App Data in Settings.')}
             style={{ padding: 0 }}
           >
-            Reset Password
+            Password Help
           </button>
         </div>
 
-        <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '16px', display: 'flex', justifyContent: 'center' }}>
+        <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <button 
             type="button" 
             className="btn btn-secondary" 
             onClick={onEnableTesterAccess}
             style={{ fontSize: '0.8rem', width: '100%' }}
           >
-            ⚡ Enable Tester Direct Access Mode
+            🛠️ Development Prototype Direct Access
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ErrorBoundary from './components/ErrorBoundary';
 import AuthScreen from './screens/AuthScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import SquadHub from './components/SquadHub';
@@ -10,91 +11,101 @@ import SettingsModal from './components/SettingsModal';
 import LocalRulesReviewModal from './components/LocalRulesReviewModal';
 import { DEFAULT_ROSTER } from './data/defaultRoster';
 import { getEffectiveMatchDefinition } from './services/competitionRulesEngine';
-import { getSyncQueue, saveSyncQueue, queueSyncTransaction, flushSyncQueue } from './services/syncService';
+import { getSyncQueue, saveSyncQueue, queueSyncTransaction, clearSyncQueue } from './services/syncService';
+import { 
+  safeStorageGet, 
+  safeStorageSet, 
+  safeStorageRemove,
+  sanitizeRosterForStorage, 
+  unmaskRosterFromStorage,
+  clearAllLocalApplicationData 
+} from './services/storage';
 
 export default function App() {
-  // Auth & Onboarding State
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('insideedge_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  return (
+    <ErrorBoundary>
+      <MainAppContent />
+    </ErrorBoundary>
+  );
+}
 
-  const [isOnboarded, setIsOnboarded] = useState(() => {
-    return localStorage.getItem('insideedge_onboarded') === 'true';
-  });
+function MainAppContent() {
+  // Auth & Onboarding State
+  const [user, setUser] = useState(() => safeStorageGet('user', null));
+  const [isOnboarded, setIsOnboarded] = useState(() => safeStorageGet('onboarded', false));
+
+  // Coach Onboarding Profile
+  const [coachProfile, setCoachProfile] = useState(() => safeStorageGet('coach_profile', {
+    coachName: 'Head Coach',
+    teamName: 'Westside Cricket Club XI',
+    selectedCohort: 'U13_JUNIOR',
+    selectedCoachLevel: 'DEVELOPMENT_LEVEL_1'
+  }));
 
   // Active Tab Index (0: Squad, 1: Training, 2: Tactics, 3: Match Day, 4: Video)
   const [activeTab, setActiveTab] = useState(0);
 
-  // Global Squad Roster
+  // Global Squad Roster (With Privacy Unmasking)
   const [squad, setSquad] = useState(() => {
-    const saved = localStorage.getItem('insideedge_squad');
-    return saved ? JSON.parse(saved) : DEFAULT_ROSTER;
+    const raw = safeStorageGet('squad', null);
+    return raw ? unmaskRosterFromStorage(raw) : DEFAULT_ROSTER;
   });
 
   // Global Video Clips
-  const [videoClips, setVideoClips] = useState(() => {
-    const saved = localStorage.getItem('insideedge_videoclips');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [videoClips, setVideoClips] = useState(() => safeStorageGet('videoclips', []));
 
-  // Settings & Integrations
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('insideedge_api_key') || '');
-  const [subscriptionTier, setSubscriptionTier] = useState(() => localStorage.getItem('insideedge_tier') || 'Ultra');
-  const [selectedCoachLevel, setSelectedCoachLevel] = useState(() => localStorage.getItem('insideedge_coach_level') || 'DEVELOPMENT_LEVEL_1');
+  // Settings & Parameters
+  const [subscriptionTier, setSubscriptionTier] = useState(() => safeStorageGet('tier', 'Workstation Pro'));
+  const [selectedCoachLevel, setSelectedCoachLevel] = useState(() => safeStorageGet('coach_level', 'DEVELOPMENT_LEVEL_1'));
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Local Competition Ruleset State
-  const [activeRuleset, setActiveRuleset] = useState(() => {
-    const saved = localStorage.getItem('insideedge_active_ruleset');
-    return saved ? JSON.parse(saved) : null;
-  });
-
+  const [activeRuleset, setActiveRuleset] = useState(() => safeStorageGet('active_ruleset', null));
   const [isRulesReviewOpen, setIsRulesReviewOpen] = useState(false);
 
-  // Connection & Offline Sync
-  const [isOnline, setIsOnline] = useState(true);
+  // Offline Sync Queue State
   const [syncQueue, setSyncQueueState] = useState(() => getSyncQueue());
 
-  // Persistence Effects
+  // Persistence Effects (Using safeStorageSet)
   useEffect(() => {
-    if (user) localStorage.setItem('insideedge_user', JSON.stringify(user));
-    else localStorage.removeItem('insideedge_user');
+    if (user) safeStorageSet('user', user);
+    else safeStorageRemove('user');
   }, [user]);
 
   useEffect(() => {
-    localStorage.setItem('insideedge_onboarded', isOnboarded.toString());
+    safeStorageSet('onboarded', isOnboarded);
   }, [isOnboarded]);
 
   useEffect(() => {
-    localStorage.setItem('insideedge_squad', JSON.stringify(squad));
+    safeStorageSet('coach_profile', coachProfile);
+  }, [coachProfile]);
+
+  useEffect(() => {
+    const sanitized = sanitizeRosterForStorage(squad);
+    safeStorageSet('squad', sanitized);
   }, [squad]);
 
   useEffect(() => {
-    localStorage.setItem('insideedge_videoclips', JSON.stringify(videoClips));
+    safeStorageSet('videoclips', videoClips);
   }, [videoClips]);
 
   useEffect(() => {
-    localStorage.setItem('insideedge_api_key', apiKey);
-  }, [apiKey]);
-
-  useEffect(() => {
-    localStorage.setItem('insideedge_tier', subscriptionTier);
+    safeStorageSet('tier', subscriptionTier);
   }, [subscriptionTier]);
 
   useEffect(() => {
-    localStorage.setItem('insideedge_coach_level', selectedCoachLevel);
+    safeStorageSet('coach_level', selectedCoachLevel);
   }, [selectedCoachLevel]);
 
   useEffect(() => {
     if (activeRuleset) {
-      localStorage.setItem('insideedge_active_ruleset', JSON.stringify(activeRuleset));
+      safeStorageSet('active_ruleset', activeRuleset);
     }
   }, [activeRuleset]);
 
-  // Player Handlers
+  // Player Roster Handlers
   const handleAddPlayer = (newPlayer) => {
-    const player = { ...newPlayer, id: 'p_' + Date.now() };
+    const player = { ...newPlayer, id: 'p_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6) };
     setSquad(prev => [...prev, player]);
     queueSyncTransaction('ADD_PLAYER', player);
     setSyncQueueState(getSyncQueue());
@@ -102,19 +113,44 @@ export default function App() {
 
   const handleEditPlayer = (id, updatedFields) => {
     setSquad(prev => prev.map(p => p.id === id ? { ...p, ...updatedFields } : p));
+    queueSyncTransaction('EDIT_PLAYER', { id, ...updatedFields });
+    setSyncQueueState(getSyncQueue());
   };
 
   const handleImportPlayers = (newPlayers) => {
     const withIds = newPlayers.map((p, idx) => ({ ...p, id: 'p_' + Date.now() + '_' + idx }));
     setSquad(prev => [...prev, ...withIds]);
+    queueSyncTransaction('IMPORT_PLAYERS', { count: withIds.length });
+    setSyncQueueState(getSyncQueue());
   };
 
   const handleRemovePlayer = (id) => {
     setSquad(prev => prev.filter(p => p.id !== id));
+    queueSyncTransaction('REMOVE_PLAYER', { id });
+    setSyncQueueState(getSyncQueue());
   };
 
   const handleSaveVideoClip = (newClip) => {
     setVideoClips(prev => [newClip, ...prev]);
+    queueSyncTransaction('SAVE_VIDEO_CLIP', { clipId: newClip.id });
+    setSyncQueueState(getSyncQueue());
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+  };
+
+  const handleResetApplicationData = () => {
+    if (window.confirm("Are you sure you want to reset all local application data?")) {
+      clearAllLocalApplicationData();
+      clearSyncQueue();
+      setUser(null);
+      setIsOnboarded(false);
+      setSquad(DEFAULT_ROSTER);
+      setVideoClips([]);
+      setActiveRuleset(null);
+      window.location.reload();
+    }
   };
 
   // Auth Protection Gate
@@ -123,7 +159,7 @@ export default function App() {
       <AuthScreen 
         onLoginSuccess={(userData) => setUser(userData)} 
         onEnableTesterAccess={() => {
-          setUser({ uid: 'tester_01', email: 'tester@insideedge.org', name: 'Tester Coach' });
+          setUser({ uid: 'tester_01', email: 'tester@insideedge.org', name: 'Tester Coach', isTester: true });
           setIsOnboarded(true);
         }}
       />
@@ -135,6 +171,7 @@ export default function App() {
     return (
       <OnboardingScreen 
         onCompleteOnboarding={(data) => {
+          setCoachProfile(data);
           setSelectedCoachLevel(data.selectedCoachLevel);
           setIsOnboarded(true);
         }}
@@ -154,30 +191,43 @@ export default function App() {
             INSIDE EDGE
           </span>
           <span className="badge" style={{ background: 'var(--color-training-glow)', color: 'var(--color-training)' }}>
-            CRICKET
+            LOCAL WORKSTATION
           </span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Active Ruleset Indicator Badge */}
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            👤 {coachProfile.coachName} ({coachProfile.teamName})
+          </span>
+
           {activeRuleset && (
             <button 
+              type="button"
               className="badge badge-ruleset" 
               onClick={() => setIsRulesReviewOpen(true)}
               style={{ cursor: 'pointer', border: 'none' }}
+              aria-label="View Active Ruleset Details"
             >
               📜 {activeRuleset.season} Rules Active
             </button>
           )}
 
-          {/* Tier Simulation Badge */}
-          <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--color-match)' }}>
-            {subscriptionTier} TIER
-          </span>
-
-          {/* Settings Trigger */}
-          <button className="icon-btn" onClick={() => setIsSettingsOpen(true)} aria-label="Settings">
+          <button 
+            type="button"
+            className="icon-btn" 
+            onClick={() => setIsSettingsOpen(true)} 
+            aria-label="Application Settings"
+          >
             ⚙️
+          </button>
+
+          <button 
+            type="button"
+            className="btn btn-secondary" 
+            onClick={handleLogout}
+            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+          >
+            Logout
           </button>
         </div>
       </header>
@@ -199,7 +249,6 @@ export default function App() {
           <TrainingLab 
             squad={squad}
             subscriptionTier={subscriptionTier}
-            apiKey={apiKey}
             selectedCoachLevel={selectedCoachLevel}
             activeRuleset={activeRuleset}
             onSaveVideoClip={handleSaveVideoClip}
@@ -234,24 +283,49 @@ export default function App() {
       </main>
 
       {/* Bottom Navigation Tab Bar */}
-      <nav className="bottom-nav">
-        <button className={`nav-item ${activeTab === 0 ? 'active-0' : ''}`} onClick={() => setActiveTab(0)}>
+      <nav className="bottom-nav" aria-label="Main Navigation">
+        <button 
+          type="button"
+          className={`nav-item ${activeTab === 0 ? 'active-0' : ''}`} 
+          onClick={() => setActiveTab(0)}
+          aria-label="Squad Hub Tab"
+        >
           <span>👥</span>
           <span>Squad</span>
         </button>
-        <button className={`nav-item ${activeTab === 1 ? 'active-1' : ''}`} onClick={() => setActiveTab(1)}>
+        <button 
+          type="button"
+          className={`nav-item ${activeTab === 1 ? 'active-1' : ''}`} 
+          onClick={() => setActiveTab(1)}
+          aria-label="Training Lab Tab"
+        >
           <span>⚡</span>
           <span>Training</span>
         </button>
-        <button className={`nav-item ${activeTab === 2 ? 'active-2' : ''}`} onClick={() => setActiveTab(2)}>
+        <button 
+          type="button"
+          className={`nav-item ${activeTab === 2 ? 'active-2' : ''}`} 
+          onClick={() => setActiveTab(2)}
+          aria-label="Tactics Board Tab"
+        >
           <span>📋</span>
           <span>Tactics</span>
         </button>
-        <button className={`nav-item ${activeTab === 3 ? 'active-3' : ''}`} onClick={() => setActiveTab(3)}>
+        <button 
+          type="button"
+          className={`nav-item ${activeTab === 3 ? 'active-3' : ''}`} 
+          onClick={() => setActiveTab(3)}
+          aria-label="Match Day Tab"
+        >
           <span>🏏</span>
           <span>Match Day</span>
         </button>
-        <button className={`nav-item ${activeTab === 4 ? 'active-4' : ''}`} onClick={() => setActiveTab(4)}>
+        <button 
+          type="button"
+          className={`nav-item ${activeTab === 4 ? 'active-4' : ''}`} 
+          onClick={() => setActiveTab(4)}
+          aria-label="Video Analyser Tab"
+        >
           <span>📹</span>
           <span>Video</span>
         </button>
@@ -261,17 +335,16 @@ export default function App() {
       <SettingsModal 
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        apiKey={apiKey}
-        setApiKey={setApiKey}
         subscriptionTier={subscriptionTier}
         setSubscriptionTier={setSubscriptionTier}
         selectedCoachLevel={selectedCoachLevel}
         setSelectedCoachLevel={setSelectedCoachLevel}
         syncQueue={syncQueue}
         clearSyncQueue={() => {
-          saveSyncQueue([]);
+          clearSyncQueue();
           setSyncQueueState([]);
         }}
+        onResetData={handleResetApplicationData}
         activeRuleset={activeRuleset}
         onRulesetCreated={(rs) => setActiveRuleset(rs)}
         onOpenRulesReview={() => setIsRulesReviewOpen(true)}
