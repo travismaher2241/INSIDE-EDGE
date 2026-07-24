@@ -47,19 +47,13 @@ export default function TrainingLab({
   const [activePlan, setActivePlan] = useState(null);
   const [generatedDrills, setGeneratedDrills] = useState([]);
   const [failureDiagnostics, setFailureDiagnostics] = useState(null);
-  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
   // Active Guided Coaching State
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [currentRotationIndex, setCurrentRotationIndex] = useState(0);
 
-  const [isAiEnhanced, setIsAiEnhanced] = useState(false);
   const [sessionHistory, setSessionHistory] = useState([]);
-
-  // Late Arrival Modal
-  const [isLateModalOpen, setIsLateModalOpen] = useState(false);
-  const [lateName, setLateName] = useState('');
 
   // Initialize attendance checklist
   useEffect(() => {
@@ -123,6 +117,8 @@ export default function TrainingLab({
       setRequestedBattingMins(suggestion.targetMins.toString());
     } else if (suggestion.type === 'ADD_NET') {
       setNumberOfNets(prev => Math.min(4, prev + 1));
+    } else if (suggestion.type === 'CHANGE_DURATION' && suggestion.targetDuration) {
+      setDuration(suggestion.targetDuration);
     } else if (suggestion.type === 'REMOVE_FOCUS' && suggestion.targetFocus) {
       setSelectedFocusIds(prev => prev.filter(f => f !== suggestion.targetFocus));
     }
@@ -279,7 +275,7 @@ export default function TrainingLab({
             </div>
           )}
 
-          {/* NETS SESSION SPECIFIC PARAMETERS */}
+          {/* NETS SESSION PARAMETERS */}
           {sessionType === 'NETS_SESSION' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -308,18 +304,18 @@ export default function TrainingLab({
               <div style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <label style={{ color: 'var(--color-training)', margin: 0, fontWeight: '700' }}>
-                    Batting Time Capacity Recommendation
+                    Single Batting Allocation Capacity
                   </label>
                   <span className="badge" style={{ background: 'var(--color-training-glow)', color: 'var(--color-training)' }}>
                     Suggested: {netCapacity.suggestedBattingMinutes} mins / batter
                   </span>
                 </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  Calculated from {numberOfNets} nets over {netCapacity.usableNetBlockMinutes} mins for {presentPlayerIds.length || 10} batters.
+                  Rule: Every designated batter receives exactly 1 batting turn (no repeat batting).
                 </p>
 
                 <div className="form-group" style={{ marginTop: '10px' }}>
-                  <label style={{ fontSize: '0.8rem' }}>Override Batting Time Allocation (Minutes per Batter)</label>
+                  <label style={{ fontSize: '0.8rem' }}>Override Batting Allocation (Minutes per Batter)</label>
                   <input 
                     type="number" 
                     placeholder={`e.g. ${netCapacity.suggestedBattingMinutes}`} 
@@ -332,7 +328,7 @@ export default function TrainingLab({
               {/* SEPARATE BATTER, BOWLER & FIELDING FOCUS SELECTORS */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div className="form-group">
-                  <label style={{ color: 'var(--color-match)' }}>🎯 Batter Focus (Multi-Select)</label>
+                  <label style={{ color: 'var(--color-match)' }}>🎯 Batter Focus</label>
                   <select value={batterFocuses[0]} onChange={(e) => setBatterFocuses([e.target.value])}>
                     <option value="Front Foot Drive">Front Foot Drive & V-Channel</option>
                     <option value="Short-Pitched Pull">Short Ball Pull & Hook</option>
@@ -342,7 +338,7 @@ export default function TrainingLab({
                 </div>
 
                 <div className="form-group">
-                  <label style={{ color: 'var(--color-tactics)' }}>🎯 Bowler Focus (Multi-Select)</label>
+                  <label style={{ color: 'var(--color-tactics)' }}>🎯 Bowler Focus</label>
                   <select value={bowlerFocuses[0]} onChange={(e) => setBowlerFocuses([e.target.value])}>
                     <option value="Pace Seam Control">Pace Seam Control & Top-of-Off Target</option>
                     <option value="Spin Dip & Drift">Spin Dip, Drift & Revolutions</option>
@@ -351,7 +347,7 @@ export default function TrainingLab({
                 </div>
 
                 <div className="form-group">
-                  <label style={{ color: 'var(--color-training)' }}>🎯 Off-Net Fielding Focus (Multi-Select)</label>
+                  <label style={{ color: 'var(--color-training)' }}>🎯 Off-Net Fielding Focus</label>
                   <select value={fieldingFocuses[0]} onChange={(e) => setFieldingFocuses([e.target.value])}>
                     <option value="Ground Fielding">Ground Fielding & Direct-Hits</option>
                     <option value="High Catching">High Catching & Boundary Relays</option>
@@ -400,12 +396,11 @@ export default function TrainingLab({
       {/* Step 4: Review Training Plan Screen */}
       {step === 'review' && activePlan && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* NETS SESSION REVIEW VIEW */}
           {activePlan.sessionType === 'NETS_SESSION' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <span className="badge badge-ruleset" style={{ fontSize: '0.75rem', alignSelf: 'flex-start' }}>
-                  CRICKET NETS SESSION ROTATION PLAN
+                  CRICKET NETS SESSION — SINGLE BATTING TURN ARCHITECTURE
                 </span>
                 <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
                   Nets Rotation Overview
@@ -419,10 +414,25 @@ export default function TrainingLab({
                 </div>
               </div>
 
+              {/* BATTING ALLOCATION SUMMARY TABLE */}
+              <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <h3 className="scoreboard-font" style={{ color: 'var(--color-match)', margin: 0, fontSize: '1.1rem' }}>
+                  Batting Allocation Summary ({activePlan.battingSummary?.length} Batters — 1 Turn Each)
+                </h3>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px', fontSize: '0.85rem' }}>
+                  {activePlan.battingSummary?.map((bs, idx) => (
+                    <div key={idx} style={{ background: 'var(--bg-floor)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                      <strong>{bs.playerId}</strong> — {bs.allocatedMinutes} min — {bs.netName} — Rotation {bs.rotationNumber}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* Rotations Breakdown */}
               {activePlan.rotations.map((rot) => (
                 <div key={rot.rotationNumber} style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <h3 className="scoreboard-font" style={{ color: 'var(--color-match)', margin: 0, fontSize: '1.1rem' }}>
+                  <h3 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0, fontSize: '1.1rem' }}>
                     ROTATION {rot.rotationNumber} — {rot.duration} MINUTES
                   </h3>
 
@@ -437,10 +447,9 @@ export default function TrainingLab({
                         {st.type === 'NET_LANE' ? (
                           <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             <div>🎯 <strong>Batter Focus:</strong> {st.batterFocus}</div>
-                            <div>🏏 <strong>Batting Order:</strong> {st.batters.join(', ')} ({st.effectiveBattingMinutes || activePlan.effectiveBattingMinutes}m each)</div>
+                            <div>🏏 <strong>Batting Order (Single Turn):</strong> {st.batters.length > 0 ? st.batters.join(', ') : 'None (Group completed batting turn)'}</div>
                             <div>🎯 <strong>Bowler Focus:</strong> {st.bowlerFocus}</div>
-                            <div>⚡ <strong>Bowlers:</strong> {st.bowlers.join(', ')}</div>
-                            {st.keeper && <div>🧤 <strong>Keeper:</strong> {st.keeper}</div>}
+                            <div>⚡ <strong>Bowlers / Target Work:</strong> {st.bowlers.join(', ')}</div>
                           </div>
                         ) : (
                           <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -458,11 +467,9 @@ export default function TrainingLab({
           ) : (
             /* STANDARD SESSION REVIEW VIEW */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
-                  Review Training Plan ({generatedDrills.length} Drills)
-                </h2>
-              </div>
+              <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
+                Review Training Plan ({generatedDrills.length} Drills)
+              </h2>
 
               {generatedDrills.map((drill, idx) => (
                 <div key={`${drill.id}_${idx}`} style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -510,17 +517,17 @@ export default function TrainingLab({
             <div style={{ width: '100%', maxWidth: '560px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '14px', padding: '20px', textAlign: 'left' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <span style={{ fontWeight: '700', color: 'var(--color-training)' }}>
-                  ACTIVE ROTATION {currentRotationIndex + 1} OF {activePlan.rotations.length}
+                  ROTATION {currentRotationIndex + 1} OF {activePlan.rotations.length}
                 </span>
                 <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--color-match)' }}>
-                  ⏰ 2 mins until batter change prompt
+                  Single Turn Queue Active
                 </span>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
                 {activePlan.rotations[currentRotationIndex]?.stations.map(st => (
                   <div key={st.stationId} style={{ background: 'var(--bg-floor)', padding: '10px', borderRadius: '8px' }}>
-                    <strong>{st.name} ({st.assignedGroup}):</strong> {st.type === 'NET_LANE' ? `Batting: ${st.batters.join(', ')} | Bowlers: ${st.bowlers.join(', ')}` : `Fielding: ${st.players.join(', ')}`}
+                    <strong>{st.name} ({st.assignedGroup}):</strong> {st.type === 'NET_LANE' ? `Batters (Single Turn): ${st.batters.join(', ') || 'Queue Completed'} | Bowlers: ${st.bowlers.join(', ')}` : `Fielding: ${st.players.join(', ')}`}
                   </div>
                 ))}
               </div>

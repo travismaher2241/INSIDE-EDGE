@@ -408,10 +408,7 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(hasRulesetReason).toBe(true);
   });
 
-  // ==========================================
-  // NETS SESSION ARCHITECTURE TESTS (Requirement 12)
-  // ==========================================
-
+  // NETS SESSION ARCHITECTURE TESTS
   it('40. Calculates dynamic net batting capacity with changeovers', () => {
     const cap = calculateBattingCapacity({
       numberOfNets: 2,
@@ -475,7 +472,7 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     });
     expect(res.success).toBe(true);
     expect(res.plan.requiresFieldingStation).toBe(true);
-    expect(res.plan.groups.length).toBe(3); // Group A, Group B, Group C
+    expect(res.plan.groups.length).toBe(3);
     const fieldingStation = res.plan.rotations[0].stations.find(s => s.type === 'FIELDING_STATION');
     expect(fieldingStation).toBeDefined();
   });
@@ -491,40 +488,71 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(totalAssigned).toBe(17);
   });
 
-  it('47. Assigns every player during every active rotation', () => {
-    const res = generateNetsSessionPlan({
-      numberOfNets: 2,
-      participantCount: 12
-    });
-    expect(res.success).toBe(true);
-    res.plan.rotations.forEach(rot => {
-      let rotationPlayerCount = 0;
-      rot.stations.forEach(st => {
-        rotationPlayerCount += (st.type === 'NET_LANE' ? st.batters.length + st.bowlers.length : st.players.length);
-      });
-      expect(rotationPlayerCount).toBe(12);
-    });
-  });
-
-  it('48. Calculates concurrent elapsed time using rotation duration rather than summed net time', () => {
+  // SINGLE BATTING TURN BUSINESS RULE REGRESSION TESTS (Requirement 10)
+  it('47. Enforces ONE BATTING TURN PER PLAYER: Every designated batter receives exactly 1 batting allocation', () => {
     const res = generateNetsSessionPlan({
       numberOfNets: 2,
       totalDuration: 90,
       participantCount: 12
     });
     expect(res.success).toBe(true);
-    expect(res.plan.totalElapsedTime).toBeLessThanOrEqual(95);
+    res.plan.playerAllocations.forEach(p => {
+      expect(p.battingAppearances).toBe(1);
+      expect(p.hasBatted).toBe(true);
+    });
   });
 
-  it('49. Rejects requested batting allocation when exceeding net capacity', () => {
+  it('48. Ensures NO PLAYER BATS TWICE in the generated nets session', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      totalDuration: 90,
+      participantCount: 12
+    });
+    expect(res.success).toBe(true);
+    const allBatters = [];
+    res.plan.rotations.forEach(rot => {
+      rot.stations.forEach(st => {
+        if (st.type === 'NET_LANE') {
+          allBatters.push(...st.batters);
+        }
+      });
+    });
+    const uniqueBatters = new Set(allBatters);
+    expect(allBatters.length).toBe(uniqueBatters.size); // Zero duplicate batting turns!
+    expect(uniqueBatters.size).toBe(12);
+  });
+
+  it('49. Batting queue never cycles and spare net capacity does not create repeat batting turns', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 3,
+      totalDuration: 90,
+      participantCount: 6 // Small group relative to 3 nets: queue empties quickly
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.battingSummary.length).toBe(6); // Exactly 6 batting allocations, no repeat turns
+  });
+
+  it('50. Insufficient net capacity fails generation clearly with deterministic diagnostic message', () => {
     const res = generateNetsSessionPlan({
       numberOfNets: 1,
       totalDuration: 60,
-      participantCount: 12,
-      requestedBattingMinutesPerPlayer: 30 // Impossible: 30 * 12 = 360 net-mins on 1 net over 40 usable mins (40 net-mins)
+      participantCount: 14 // 14 batters on 1 net over 40 usable mins = impossible for 1 turn each
     });
     expect(res.success).toBe(false);
-    expect(res.userMessage).toContain('exceeds available net capacity');
+    expect(res.userMessage).toContain('not enough net time to give every batter one batting allocation');
+  });
+
+  it('51. Batting Allocation Summary contains every designated batter exactly once', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      totalDuration: 90,
+      participantCount: 10
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.battingSummary.length).toBe(10);
+    const summaryPlayerIds = res.plan.battingSummary.map(bs => bs.playerId);
+    const uniqueSummary = new Set(summaryPlayerIds);
+    expect(summaryPlayerIds.length).toBe(uniqueSummary.size);
   });
 
 });

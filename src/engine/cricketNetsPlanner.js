@@ -2,10 +2,11 @@ import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { REJECTION_CODES } from './deterministicPlanner';
 
 /**
- * Cricket Nets Session Architecture & Rotation Engine
- * Calculates usable net capacity, dynamic batting time per player,
- * dual-focus net lanes (Batter Focus + Bowler Focus), large group rotations,
- * off-net fielding stations, and odd participant allocations.
+ * Cricket Nets Session Architecture & Single-Turn Batting Rotation Engine
+ *
+ * Inside Edge V1 Business Rule:
+ * NO PLAYER BATS TWICE IN THE SAME GENERATED NETS SESSION.
+ * ONE DESIGNATED BATTER = ONE BATTING TURN PER GENERATED NETS SESSION.
  */
 
 export function calculateBattingCapacity({
@@ -46,7 +47,7 @@ export function generateNetsSessionPlan({
   requestedBattingMinutesPerPlayer = null,
   activeRuleset = null
 }) {
-  // 1. Calculate Net Capacity & Batting Allocation
+  // 1. Calculate Capacity & Batting Allocation
   const capacity = calculateBattingCapacity({
     numberOfNets,
     totalDuration,
@@ -55,23 +56,42 @@ export function generateNetsSessionPlan({
 
   const effectiveBattingMinutes = requestedBattingMinutesPerPlayer || capacity.suggestedBattingMinutes;
 
-  // Validation: Check if requested batting allocation exceeds net capacity
+  // Validation: Check if 1 batting allocation per batter can fit within available net time
   const totalRequestedNetMinutes = effectiveBattingMinutes * participantCount;
-  if (totalRequestedNetMinutes > capacity.totalNetMinutes + 5) {
+  if (totalRequestedNetMinutes > capacity.totalNetMinutes || effectiveBattingMinutes < 5) {
     return {
       success: false,
-      userMessage: `Requested batting allocation of ${effectiveBattingMinutes} mins per batter (${totalRequestedNetMinutes} net-mins total) exceeds available net capacity (${capacity.totalNetMinutes} net-mins).`,
+      userMessage: `With ${participantCount} batters, ${numberOfNets} net(s) and the current session duration (${totalDuration}m), there is not enough net time to give every batter one batting allocation.`,
       primaryReasons: [
-        `Requested ${effectiveBattingMinutes} mins/batter requires ${totalRequestedNetMinutes} net-minutes, but ${numberOfNets} net(s) over ${capacity.usableNetBlockMinutes} mins provide only ${capacity.totalNetMinutes} net-minutes.`
+        `With ${participantCount} batters, ${numberOfNets} net(s) and the current session duration, there is not enough net time to give every batter one batting allocation.`
       ],
       suggestedChanges: [
-        { type: 'CHANGE_BATTING_MINS', label: `Use suggested ${capacity.suggestedBattingMinutes} mins/batter`, targetMins: capacity.suggestedBattingMinutes },
-        { type: 'ADD_NET', label: 'Increase number of net lanes' }
+        { type: 'CHANGE_BATTING_MINS', label: `Reduce batting time per player to ${capacity.suggestedBattingMinutes} mins`, targetMins: capacity.suggestedBattingMinutes },
+        { type: 'ADD_NET', label: 'Increase available net lanes' },
+        { type: 'CHANGE_DURATION', label: 'Increase net-session duration', targetDuration: totalDuration + 30 }
       ]
     };
   }
 
-  // 2. Determine Group Structure (Nets + Fielding Station)
+  // 2. Initialize Player Tracking & Session-Wide Batting Queue
+  const players = [];
+  for (let pIdx = 1; pIdx <= participantCount; pIdx++) {
+    players.push({
+      playerId: `Player_${pIdx}`,
+      name: `Player ${pIdx}`,
+      requiresBattingTime: true,
+      targetBattingMinutes: effectiveBattingMinutes,
+      allocatedBattingMinutes: 0,
+      battingSlotId: null,
+      hasBatted: false,
+      battingAppearances: 0
+    });
+  }
+
+  const playerMap = new Map(players.map(p => [p.playerId, p]));
+  const unallocatedBattingQueue = players.map(p => p.playerId);
+
+  // 3. Determine Station & Rotation Structure
   const requiresFieldingStation = participantCount > (numberOfNets * 5) && openFieldAvailable;
   const stationCount = requiresFieldingStation ? numberOfNets + 1 : numberOfNets;
   const rotationCount = stationCount;
@@ -91,19 +111,19 @@ export function generateNetsSessionPlan({
     }
 
     groups.push({
-      groupId: `Group_${String.fromCharCode(65 + gIdx)}`, // Group A, Group B, Group C...
+      groupId: `Group_${String.fromCharCode(65 + gIdx)}`,
       size,
       players: groupPlayers
     });
   }
 
-  // 3. Find Fielding Activity if fielding station is active
+  // 4. Select Fielding Activity if fielding station is active
   let fieldingActivity = null;
   if (requiresFieldingStation) {
     const candidateFielding = STRUCTURED_ACTIVITIES.find(act => 
       act.permittedSessionSlots.includes('Game-Based Scenario') ||
       fieldingFocuses.some(f => act.activityCategory.toLowerCase().includes(f.toLowerCase()) || act.primarySkills.some(s => s.toLowerCase().includes(f.toLowerCase())))
-    ) || STRUCTURED_ACTIVITIES[3]; // Fallback to GF-001
+    ) || STRUCTURED_ACTIVITIES[3];
 
     fieldingActivity = {
       ...candidateFielding,
@@ -111,27 +131,71 @@ export function generateNetsSessionPlan({
     };
   }
 
-  // 4. Build Rotations
+  // 5. Build Rotations & Assign Single Batting Allocations
   const rotationDuration = Math.floor(capacity.usableNetBlockMinutes / rotationCount);
   const rotations = [];
+  const battingSummary = [];
 
   for (let rIdx = 0; rIdx < rotationCount; rIdx++) {
     const stations = [];
 
-    // Assign groups to Net Lanes & Fielding Station per rotation
     for (let nIdx = 0; nIdx < numberOfNets; nIdx++) {
       const assignedGroupIndex = (rIdx + nIdx) % rotationCount;
       const assignedGroup = groups[assignedGroupIndex];
 
-      // Dual Focus Setup for Net Lane
       const primaryBatterFocus = batterFocuses[nIdx % batterFocuses.length] || 'Front Foot Drive';
       const primaryBowlerFocus = bowlerFocuses[nIdx % bowlerFocuses.length] || 'Pace Seam Control';
 
-      // Divide group into Batters and Bowlers/Keepers
-      const batterCount = Math.max(1, Math.floor(assignedGroup.size / 2));
-      const batters = assignedGroup.players.slice(0, batterCount);
-      const bowlers = assignedGroup.players.slice(batterCount);
+      // Pick all unbatted members of the assigned group for this net visit
+      const groupUnbatted = assignedGroup.players.filter(pid => {
+        const p = playerMap.get(pid);
+        return p && !p.hasBatted;
+      });
+
+      const battersToAssign = [...groupUnbatted];
+
+      // Mark assigned batters as having batted (EXACTLY 1 ALLOCATION)
+      const batters = [];
+      const battingOrder = [];
+
+      battersToAssign.forEach((pid, bIdx) => {
+        const playerObj = playerMap.get(pid);
+        if (playerObj && !playerObj.hasBatted) {
+          playerObj.hasBatted = true;
+          playerObj.battingAppearances = 1;
+          playerObj.allocatedBattingMinutes = effectiveBattingMinutes;
+          playerObj.battingSlotId = `rot${rIdx + 1}_net${nIdx + 1}_slot${bIdx + 1}`;
+
+          // Remove from unallocated queue
+          const qIdx = unallocatedBattingQueue.indexOf(pid);
+          if (qIdx !== -1) unallocatedBattingQueue.splice(qIdx, 1);
+
+          batters.push(pid);
+          battingOrder.push({
+            player: pid,
+            order: bIdx + 1,
+            allocatedMinutes: effectiveBattingMinutes
+          });
+
+          battingSummary.push({
+            playerId: pid,
+            allocatedMinutes: effectiveBattingMinutes,
+            netName: `Net ${nIdx + 1}`,
+            rotationNumber: rIdx + 1
+          });
+        }
+      });
+
+      // Remaining group members act as Bowlers / Keeper (EXCESS NET TIME USED FOR BOWLING/TARGET WORK)
+      const bowlers = assignedGroup.players.filter(pid => !batters.includes(pid));
       const keeper = bowlers.length >= 2 ? bowlers[bowlers.length - 1] : null;
+
+      const secondaryActivity = bowlers.length > 0 ? {
+        id: 'BOWLING_TARGET_WORK',
+        title: `${primaryBowlerFocus} Target Execution`,
+        focus: primaryBowlerFocus,
+        type: 'TARGET_BOWLING'
+      } : null;
 
       stations.push({
         stationId: `net_${nIdx + 1}`,
@@ -143,7 +207,8 @@ export function generateNetsSessionPlan({
         batters,
         bowlers,
         keeper,
-        battingOrder: batters.map((b, bIdx) => ({ player: b, order: bIdx + 1, estMinutes: effectiveBattingMinutes })),
+        battingOrder,
+        secondaryActivity,
         coachingCues: {
           batterCues: [`Focus on ${primaryBatterFocus}`, 'High front elbow', 'Head over contact line'],
           bowlerCues: [`Focus on ${primaryBowlerFocus}`, 'Upright seam release', 'Target top of off stump']
@@ -151,7 +216,7 @@ export function generateNetsSessionPlan({
       });
     }
 
-    // Assign group to Fielding Station if active
+    // Assign group to Off-Net Fielding Station if active
     if (requiresFieldingStation) {
       const fieldingGroupIndex = (rIdx + numberOfNets) % rotationCount;
       const fieldingGroup = groups[fieldingGroupIndex];
@@ -174,7 +239,25 @@ export function generateNetsSessionPlan({
     });
   }
 
-  // 5. Total Elapsed Time (Template-based concurrent time)
+  // 6. HARD VALIDATION RULE: Every required batter MUST have EXACTLY ONE batting allocation
+  const unallocatedPlayers = players.filter(p => p.requiresBattingTime && p.battingAppearances === 0);
+  const repeatBatters = players.filter(p => p.battingAppearances > 1);
+
+  if (unallocatedPlayers.length > 0 || repeatBatters.length > 0) {
+    return {
+      success: false,
+      userMessage: `Validation failed: ${unallocatedPlayers.length} batter(s) received 0 batting turns, and ${repeatBatters.length} received duplicate turns.`,
+      primaryReasons: [
+        unallocatedPlayers.length > 0 ? `${unallocatedPlayers.map(p => p.playerId).join(', ')} did not receive a batting allocation.` : '',
+        repeatBatters.length > 0 ? `${repeatBatters.map(p => p.playerId).join(', ')} received more than one batting allocation.` : ''
+      ].filter(Boolean),
+      suggestedChanges: [
+        { type: 'CHANGE_BATTING_MINS', label: `Reduce batting time per player to ${capacity.suggestedBattingMinutes} mins`, targetMins: capacity.suggestedBattingMinutes },
+        { type: 'ADD_NET', label: 'Increase available net lanes' }
+      ]
+    };
+  }
+
   const totalElapsedTime = 10 + (rotationDuration * rotationCount) + 10;
 
   return {
@@ -192,7 +275,9 @@ export function generateNetsSessionPlan({
       rotationCount,
       requiresFieldingStation,
       groups,
-      rotations
+      rotations,
+      battingSummary,
+      playerAllocations: Array.from(playerMap.values())
     }
   };
 }
