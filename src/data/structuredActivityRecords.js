@@ -1,0 +1,236 @@
+/**
+ * Rich 25-Field Runtime Activity Records
+ * Validated drill definitions preserving complete structured eligibility and coaching metadata
+ */
+
+export const STRUCTURED_ACTIVITIES = [
+  {
+    id: 'BA-001',
+    title: 'Warm-up: High-Elbow Throwdowns & Footwork Wave',
+    activityCategory: 'Batting',
+    primarySkills: ['Front Foot Drive', 'Weight Transfer'],
+    secondarySkills: ['Head Positioning', 'Eye Tracking'],
+    tacticalConcepts: ['V-Channel Scoring', 'Early Ball Perception'],
+    cohortSuitability: ['U11_JUNIOR', 'U13_JUNIOR', 'U15_JUNIOR', 'U17_JUNIOR', 'SENIOR_OPEN', 'WOMENS'],
+    explicitCohortModifications: {
+      U11_JUNIOR: 'Use soft incrediballs and plastic stumps.',
+      SENIOR_OPEN: 'Increase sidearm throwdown velocity to match 125km/h pitch drop.'
+    },
+    minimumCoachLevel: 'COMMUNITY_FOUNDATION',
+    minParticipants: 4,
+    idealParticipants: 8,
+    maxParticipants: 16,
+    groupingMode: 'PAIRS',
+    durationRange: { min: 10, ideal: 15, max: 20 },
+    durationPct: 0.15,
+    venueRequirements: ['NET_LANES_TURF', 'NET_LANES_SYNTHETIC', 'INDOOR_FACILITY'],
+    equipmentRequirements: ['SOFT_BALLS', 'STUMPS_PLASTIC', 'CONES', 'PROTECTIVE_HELMET'],
+    physicalLoad: 'LOW',
+    cognitiveLoad: 'MEDIUM',
+    safetyTags: ['HELMET_MANDATORY_IN_NETS'],
+    permittedSessionSlots: ['Warm-up', 'Technical Skill'],
+    setup: 'Pair up players in net lanes at 12-meter distance. Kicker or coach feeds underarm throwdowns to a marked crease spot.',
+    executionSteps: [
+      'Batter assumes balanced ready stance with eyes level.',
+      'Feeder delivers smooth underarm throwdown landing on full-length marker.',
+      'Batter steps forward towards line of ball with lead shoulder leading.',
+      'Execute high-elbow straight drive returning ball along the turf to feeder.'
+    ],
+    rules: 'Batter receives 6 deliveries before swapping roles with feeder.',
+    coachingPointsCues: [
+      'Lead with the shoulder, not the bat.',
+      'Head over the ball at contact point.',
+      'Keep front knee flexed towards mid-off.'
+    ],
+    observations: ['Watch for falling over towards off-side on foot strike.'],
+    commonErrors: ['Reaching for ball with stiff arms', 'Early head lift'],
+    corrections: ['Place target cone under chin to force eyes down.'],
+    progressions: ['Progress to overarm throwdowns with sidearm feeder.'],
+    regressions: ['Use stationary tee ball placement.'],
+    successIndicators: ['8 out of 10 drives hit straight back through the V channel.'],
+    relatedActivities: ['BA-002', 'PB-012'],
+    sourceReferences: {
+      chapter: 'Chapter 01 Batting',
+      recordId: 'BA-001',
+      version: '1.0'
+    }
+  },
+  {
+    id: 'PB-012',
+    title: 'Skill Drill: Target-Mat Line & Length Seam Control',
+    activityCategory: 'Pace Bowling',
+    primarySkills: ['Good Length Target Spot', 'Seam Alignment'],
+    secondarySkills: ['Gather & Release Height', 'Follow-Through'],
+    tacticalConcepts: ['Building Dot-Ball Pressure', 'Top of Off-Stump Target'],
+    cohortSuitability: ['U13_JUNIOR', 'U15_JUNIOR', 'U17_JUNIOR', 'SENIOR_OPEN', 'WOMENS'],
+    explicitCohortModifications: {
+      U13_JUNIOR: 'Reduce pitch length to 19 meters per stage 2 guidelines.'
+    },
+    minimumCoachLevel: 'DEVELOPMENT_LEVEL_1',
+    minParticipants: 3,
+    idealParticipants: 6,
+    maxParticipants: 12,
+    groupingMode: 'ROTATION',
+    durationRange: { min: 20, ideal: 30, max: 40 },
+    durationPct: 0.35,
+    venueRequirements: ['NET_LANES_TURF', 'NET_LANES_SYNTHETIC', 'FULL_OVAL'],
+    equipmentRequirements: ['LEATHER_BALLS', 'STUMPS_WOODEN', 'CONES'],
+    physicalLoad: 'HIGH',
+    cognitiveLoad: 'MEDIUM',
+    safetyTags: ['FAST_BOWLING_SPELL_MONITORED'],
+    permittedSessionSlots: ['Technical Skill'],
+    setup: 'Place a 1m x 1m rubber target mat 5 meters out from batter stumps on top-of-off line.',
+    executionSteps: [
+      'Pacer marks steady 8 to 12-pace run-up.',
+      'Bowls target delivery aiming for upright seam impact on rubber mat.',
+      'Wicketkeeper takes ball standing back and rates seam stability.'
+    ],
+    rules: 'Limit each bowler to 4 overs total per session with 2-minute rest intervals.',
+    coachingPointsCues: [
+      'Upright seam position pointing to 1st slip.',
+      'Pull non-bowling arm down past front hip.',
+      'Drive back leg through to target.'
+    ],
+    observations: ['Check for seam wobble or round-arm delivery path.'],
+    commonErrors: ['Collapsing front knee at front foot plant'],
+    corrections: ['Shorten run-up by 2 paces to focus on upright front leg brace.'],
+    progressions: ['Introduce batter standing in net playing leave/defend.'],
+    regressions: ['Bowl from short 3-step walk-in.'],
+    successIndicators: ['6 out of 10 deliveries hit target mat on top-of-off line.'],
+    relatedActivities: ['BA-001', 'SB-005'],
+    sourceReferences: {
+      chapter: 'Chapter 02 Pace Bowling',
+      recordId: 'PB-012',
+      version: '1.0'
+    }
+  },
+  {
+    id: 'SB-005',
+    title: 'Skill Drill: Spin Drift & Revolutions Challenge',
+    activityCategory: 'Spin Bowling',
+    primarySkills: ['Revolutions on Ball', 'Flight & Dip'],
+    secondarySkills: ['Wrist Snap', 'Drop Zone Precision'],
+    tacticalConcepts: ['Dip & Drift Away From Batter', 'Crease Depth Control'],
+    cohortSuitability: ['U11_JUNIOR', 'U13_JUNIOR', 'U15_JUNIOR', 'U17_JUNIOR', 'SENIOR_OPEN', 'WOMENS'],
+    explicitCohortModifications: {},
+    minimumCoachLevel: 'DEVELOPMENT_LEVEL_1',
+    minParticipants: 3,
+    idealParticipants: 6,
+    maxParticipants: 10,
+    groupingMode: 'ROTATION',
+    durationRange: { min: 15, ideal: 25, max: 35 },
+    durationPct: 0.35,
+    venueRequirements: ['NET_LANES_TURF', 'NET_LANES_SYNTHETIC', 'INDOOR_FACILITY'],
+    equipmentRequirements: ['LEATHER_BALLS', 'STUMPS_WOODEN', 'CONES'],
+    physicalLoad: 'MEDIUM',
+    cognitiveLoad: 'HIGH',
+    safetyTags: [],
+    permittedSessionSlots: ['Technical Skill'],
+    setup: 'Set string line across net lane 2.5m high above pitch to force elevated arc.',
+    executionSteps: [
+      'Spinner runs in with rhythmic 4-pace approach.',
+      'Lofts ball over string line into marked 1.5m drop circle on pitch.',
+      'Rip fingers around seam to maximize revolutions.'
+    ],
+    rules: 'Each spinner bowls 18 deliveries per block.',
+    coachingPointsCues: ['Spin over the top of the ball.', 'Drive high front arm up before release.'],
+    observations: ['Monitor for flat trajectories or pushing ball through fast.'],
+    commonErrors: ['Releasing ball late causing full tosses'],
+    corrections: ['Focus on chin up at front foot plant.'],
+    progressions: ['Add batter sweeping or stepping down pitch.'],
+    regressions: ['Bowl standing still at crease.'],
+    successIndicators: ['Ball clears string line and lands inside drop circle.'],
+    relatedActivities: ['PB-012', 'WK-001'],
+    sourceReferences: {
+      chapter: 'Chapter 03 Spin Bowling',
+      recordId: 'SB-005',
+      version: '1.0'
+    }
+  },
+  {
+    id: 'GF-001',
+    title: 'Game Scenario: Ring Fielding & Direct-Hit Run-Out Battle',
+    activityCategory: 'Ground Fielding',
+    primarySkills: ['Attack Ground Ball', 'Clean One-Hand Pickup', 'Underarm Throw'],
+    secondarySkills: ['Backing Up', 'Target Alignment'],
+    tacticalConcepts: ['Denying Single in Powerplay', 'Pressure Run-Out Execution'],
+    cohortSuitability: ['U11_JUNIOR', 'U13_JUNIOR', 'U15_JUNIOR', 'U17_JUNIOR', 'SENIOR_OPEN', 'WOMENS'],
+    explicitCohortModifications: {},
+    minimumCoachLevel: 'COMMUNITY_FOUNDATION',
+    minParticipants: 6,
+    idealParticipants: 12,
+    maxParticipants: 18,
+    groupingMode: 'TEAMS',
+    durationRange: { min: 20, ideal: 30, max: 40 },
+    durationPct: 0.35,
+    venueRequirements: ['FULL_OVAL', 'HALF_OVAL'],
+    equipmentRequirements: ['SOFT_BALLS', 'STUMPS_PLASTIC', 'CONES'],
+    physicalLoad: 'HIGH',
+    cognitiveLoad: 'HIGH',
+    safetyTags: [],
+    permittedSessionSlots: ['Game-Based Scenario'],
+    setup: 'Position 4 fielding posts in inner 30-yard ring around pitch with single stump at bowler end.',
+    executionSteps: [
+      'Coach hits random ground ball into ring.',
+      'Fielders charge, pick up cleanly, and execute underarm throw at single stump.',
+      'Runners attempt to complete 1 run before ball hits stumps.'
+    ],
+    rules: 'Fielding team scores 2 points per direct hit. Batting team scores 1 point per safe run.',
+    coachingPointsCues: ['Stay low through ball pickup.', 'Point non-throwing shoulder at stumps.'],
+    observations: ['Check for fielders slowing down prior to ball gathering.'],
+    commonErrors: ['Fumbling ball on move', 'Throwing wildly off-balance'],
+    corrections: ['Set feet with quick short steps before final stride.'],
+    progressions: ['Use leather balls and full-speed runners.'],
+    regressions: ['Roll stationary ball.'],
+    successIndicators: ['Fielders achieve 40%+ direct-hit accuracy.'],
+    relatedActivities: ['CA-001', 'MS-001'],
+    sourceReferences: {
+      chapter: 'Chapter 06 Ground Fielding',
+      recordId: 'GF-001',
+      version: '1.0'
+    }
+  },
+  {
+    id: 'MS-001',
+    title: 'Match Scenario: Last 3 Overs Death-Chasing Match Simulation',
+    activityCategory: 'Match Simulation',
+    primarySkills: ['Boundary Striking', 'Death Bowling Yorkers', 'Pressure Execution'],
+    secondarySkills: ['Field Placement Awareness', 'Running Hard 2s'],
+    tacticalConcepts: ['Executing Under High Pressure', 'Defending Short Boundary'],
+    cohortSuitability: ['U13_JUNIOR', 'U15_JUNIOR', 'U17_JUNIOR', 'SENIOR_OPEN', 'WOMENS'],
+    explicitCohortModifications: {},
+    minimumCoachLevel: 'ADVANCED_LEVEL_2',
+    minParticipants: 12,
+    idealParticipants: 16,
+    maxParticipants: 22,
+    groupingMode: 'FULL_MATCH',
+    durationRange: { min: 25, ideal: 35, max: 45 },
+    durationPct: 0.35,
+    venueRequirements: ['FULL_OVAL'],
+    equipmentRequirements: ['LEATHER_BALLS', 'STUMPS_WOODEN', 'CONES', 'PROTECTIVE_HELMET'],
+    physicalLoad: 'HIGH',
+    cognitiveLoad: 'HIGH',
+    safetyTags: ['HELMET_MANDATORY_IN_MATCH_SIM'],
+    permittedSessionSlots: ['Game-Based Scenario'],
+    setup: 'Set up full 11v11 scenario. Batting team requires 28 runs off 18 balls with 4 wickets in hand.',
+    executionSteps: [
+      'Bowlers deliver full T20 death overs with structured field (5 outfielders).',
+      'Batters execute target boundary clearing and quick strike rotation.',
+      'Umpire/Coach tracks legal balls, runs, and wickets.'
+    ],
+    rules: 'Dot ball = +2 points to bowling team. Boundary 4/6 = +2 points to batting team.',
+    coachingPointsCues: ['Stay calm under pressure.', 'Communicate calls loud and early.'],
+    observations: ['Observe decision making under high fatigue and crowd noise.'],
+    commonErrors: ['Panicking and swinging across line to straight yorkers'],
+    corrections: ['Pre-session visual breathing reset between balls.'],
+    progressions: ['Add 2-run penalty for wide deliveries.'],
+    regressions: ['Reduce target to 18 runs off 18 balls.'],
+    successIndicators: ['Scenario completed with close outcome down to final over.'],
+    relatedActivities: ['GF-001', 'BA-001'],
+    sourceReferences: {
+      chapter: 'Chapter 15 Match Simulation',
+      recordId: 'MS-001',
+      version: '1.0'
+    }
+  }
+];
