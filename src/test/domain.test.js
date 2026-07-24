@@ -234,4 +234,14 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(ruleset.conflicts[0].status).toBe('BLOCKED_BY_SAFETY');
   });
 
+  // 27. Multi-Select Focus Picker & Planner Tagging
+  it('27. Accepts selectedFocusIds array and tags activities with contributing focus', () => {
+    const results = searchActivities({
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Batting', 'Ground Fielding']
+    });
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].contributingFocus).toBeDefined();
+  });
+
 });
