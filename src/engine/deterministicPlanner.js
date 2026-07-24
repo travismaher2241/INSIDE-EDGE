@@ -1,6 +1,9 @@
 import { SESSION_TEMPLATES } from '../config/sessionTemplates';
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { VENUE_MODELS } from '../config/venues';
+import { generateNetsSessionPlan, calculateBattingCapacity } from './cricketNetsPlanner';
+
+export { calculateBattingCapacity };
 
 /**
  * Diagnostic Rejection Codes Taxonomy
@@ -27,10 +30,23 @@ export const REJECTION_CODES = {
 };
 
 /**
- * Authoritative Deterministic Training Planner Engine
- * Includes Structured Diagnostics, Focus Coverage Analysis, and Actionable Suggestions.
+ * Unified Deterministic Training Planner Entry Point
+ * Routes to Nets Session Architecture or Standard Session Template Planner.
  */
-export function generateTrainingPlan({
+export function generateTrainingPlan(params) {
+  const { sessionType = 'STANDARD_SESSION' } = params;
+
+  if (sessionType === 'NETS_SESSION') {
+    return generateNetsSessionPlan(params);
+  }
+
+  return generateStandardTrainingPlan(params);
+}
+
+/**
+ * Standard Session Template Planner Engine
+ */
+function generateStandardTrainingPlan({
   requestedDuration = 90,
   cohortId = 'U13_JUNIOR',
   selectedFocusIds = ['Batting'],
@@ -233,6 +249,7 @@ export function generateTrainingPlan({
     plan: {
       templateId: template.id,
       templateName: template.name,
+      sessionType: 'STANDARD_SESSION',
       requestedDuration,
       totalElapsedTime,
       blocks: populatedBlocks,

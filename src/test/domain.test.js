@@ -6,6 +6,7 @@ import { SAFETY_FRAMEWORK } from '../config/safety';
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { searchActivities } from '../data/retrievalIndex';
 import { generateTrainingPlan, REJECTION_CODES } from '../engine/deterministicPlanner';
+import { generateNetsSessionPlan, calculateBattingCapacity } from '../engine/cricketNetsPlanner';
 import { createInitialMatchState, recordDelivery, undoLastDelivery, calculatePlayerStats } from '../engine/cricketMatchEngine';
 import { processUploadedRuleDocument, getEffectiveMatchDefinition } from '../services/competitionRulesEngine';
 import { processVideoImport } from '../services/videoImportPipeline';
@@ -331,11 +332,7 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(initialBlockCount).toBe(4);
   });
 
-  // ==========================================
-  // STRUCTURED DIAGNOSTICS TESTS (Requirement 10)
-  // ==========================================
-
-  // 35. Venue-caused failure identifies venue
+  // STRUCTURED DIAGNOSTICS TESTS
   it('35. Structured diagnostics identifies venue-caused failure specifically', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -350,7 +347,6 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(hasVenueReason).toBe(true);
   });
 
-  // 36. Focus coverage analysis reports eligible vs ineligible focuses
   it('36. Focus coverage analysis reports eligible vs ineligible focuses', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -366,7 +362,6 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(msFocus.isEligible).toBe(false);
   });
 
-  // 37. Insufficient participant count reports capacity constraint
   it('37. Participant capacity rejection reports participant count specifically', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -379,7 +374,6 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(hasPartRejection).toBe(true);
   });
 
-  // 38. Actionable suggestions correspond to actual constraints without AI
   it('38. Generates deterministic suggestions proven to resolve constraints', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -395,7 +389,6 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(venueSuggestion.targetVenue).toBe('FULL_OVAL');
   });
 
-  // 39. Local competition rule rejection identifies active ruleset
   it('39. Local ruleset restriction identifies active ruleset in primary reasons', () => {
     const mockRuleset = {
       name: 'Junior_ByLaws_2026',
@@ -413,6 +406,125 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(res.success).toBe(false);
     const hasRulesetReason = res.primaryReasons.some(r => r.includes('Junior_ByLaws_2026'));
     expect(hasRulesetReason).toBe(true);
+  });
+
+  // ==========================================
+  // NETS SESSION ARCHITECTURE TESTS (Requirement 12)
+  // ==========================================
+
+  it('40. Calculates dynamic net batting capacity with changeovers', () => {
+    const cap = calculateBattingCapacity({
+      numberOfNets: 2,
+      totalDuration: 90,
+      participantCount: 12
+    });
+    expect(cap.usableNetBlockMinutes).toBe(70);
+    expect(cap.totalNetMinutes).toBe(140);
+    expect(cap.suggestedBattingMinutes).toBeGreaterThanOrEqual(10);
+  });
+
+  it('41. Generates 1 Net session plan with multiple batters', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 1,
+      totalDuration: 60,
+      participantCount: 6,
+      openFieldAvailable: false
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.numberOfNets).toBe(1);
+    expect(res.plan.rotations.length).toBe(1);
+  });
+
+  it('42. Generates 2 Nets session plan', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      totalDuration: 90,
+      participantCount: 10
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.numberOfNets).toBe(2);
+  });
+
+  it('43. Generates 3 Nets session plan', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 3,
+      totalDuration: 90,
+      participantCount: 15
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.numberOfNets).toBe(3);
+  });
+
+  it('44. Supports separate Batter and Bowler Focuses per net lane', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      batterFocuses: ['Front Foot Drive'],
+      bowlerFocuses: ['Pace Seam Control']
+    });
+    expect(res.success).toBe(true);
+    const net1 = res.plan.rotations[0].stations.find(s => s.stationId === 'net_1');
+    expect(net1.batterFocus).toBe('Front Foot Drive');
+    expect(net1.bowlerFocus).toBe('Pace Seam Control');
+  });
+
+  it('45. Generates 18 players across 2 nets plus off-net fielding station', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      participantCount: 18,
+      openFieldAvailable: true
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.requiresFieldingStation).toBe(true);
+    expect(res.plan.groups.length).toBe(3); // Group A, Group B, Group C
+    const fieldingStation = res.plan.rotations[0].stations.find(s => s.type === 'FIELDING_STATION');
+    expect(fieldingStation).toBeDefined();
+  });
+
+  it('46. Supports odd player numbers (17 players) cleanly', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      participantCount: 17,
+      openFieldAvailable: true
+    });
+    expect(res.success).toBe(true);
+    const totalAssigned = res.plan.groups.reduce((acc, g) => acc + g.size, 0);
+    expect(totalAssigned).toBe(17);
+  });
+
+  it('47. Assigns every player during every active rotation', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      participantCount: 12
+    });
+    expect(res.success).toBe(true);
+    res.plan.rotations.forEach(rot => {
+      let rotationPlayerCount = 0;
+      rot.stations.forEach(st => {
+        rotationPlayerCount += (st.type === 'NET_LANE' ? st.batters.length + st.bowlers.length : st.players.length);
+      });
+      expect(rotationPlayerCount).toBe(12);
+    });
+  });
+
+  it('48. Calculates concurrent elapsed time using rotation duration rather than summed net time', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      totalDuration: 90,
+      participantCount: 12
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.totalElapsedTime).toBeLessThanOrEqual(95);
+  });
+
+  it('49. Rejects requested batting allocation when exceeding net capacity', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 1,
+      totalDuration: 60,
+      participantCount: 12,
+      requestedBattingMinutesPerPlayer: 30 // Impossible: 30 * 12 = 360 net-mins on 1 net over 40 usable mins (40 net-mins)
+    });
+    expect(res.success).toBe(false);
+    expect(res.userMessage).toContain('exceeds available net capacity');
   });
 
 });
