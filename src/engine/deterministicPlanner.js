@@ -1,33 +1,9 @@
 import { SESSION_TEMPLATES } from '../config/sessionTemplates';
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
-import { VENUE_MODELS } from '../config/venues';
+import { REJECTION_CODES } from '../config/rejectionCodes';
 import { generateNetsSessionPlan, calculateBattingCapacity } from './cricketNetsPlanner';
 
-export { calculateBattingCapacity };
-
-/**
- * Diagnostic Rejection Codes Taxonomy
- */
-export const REJECTION_CODES = {
-  COHORT_NOT_ELIGIBLE: 'COHORT_NOT_ELIGIBLE',
-  COACH_LEVEL_TOO_LOW: 'COACH_LEVEL_TOO_LOW',
-  TOO_FEW_PARTICIPANTS: 'TOO_FEW_PARTICIPANTS',
-  TOO_MANY_PARTICIPANTS: 'TOO_MANY_PARTICIPANTS',
-  VENUE_NOT_SUPPORTED: 'VENUE_NOT_SUPPORTED',
-  NETS_REQUIRED: 'NETS_REQUIRED',
-  OPEN_SPACE_REQUIRED: 'OPEN_SPACE_REQUIRED',
-  EQUIPMENT_MISSING: 'EQUIPMENT_MISSING',
-  SAFETY_RULE_BLOCK: 'SAFETY_RULE_BLOCK',
-  SESSION_SLOT_NOT_ALLOWED: 'SESSION_SLOT_NOT_ALLOWED',
-  FOCUS_NOT_COVERED: 'FOCUS_NOT_COVERED',
-  DURATION_TOO_SHORT: 'DURATION_TOO_SHORT',
-  DURATION_TOO_LONG: 'DURATION_TOO_LONG',
-  NO_ACTIVITY_FOR_REQUIRED_BLOCK: 'NO_ACTIVITY_FOR_REQUIRED_BLOCK',
-  NO_VALID_REPLACEMENT: 'NO_VALID_REPLACEMENT',
-  TEMPLATE_CANNOT_FIT_DURATION: 'TEMPLATE_CANNOT_FIT_DURATION',
-  LOCAL_RULESET_RESTRICTION: 'LOCAL_RULESET_RESTRICTION',
-  UNKNOWN_OR_UNRESOLVED_RULE: 'UNKNOWN_OR_UNRESOLVED_RULE'
-};
+export { calculateBattingCapacity, REJECTION_CODES };
 
 /**
  * Unified Deterministic Training Planner Entry Point
@@ -56,9 +32,20 @@ function generateStandardTrainingPlan({
   participantCount = 10,
   activeRuleset = null
 }) {
+  if (participantCount <= 0) {
+    return {
+      success: false,
+      userMessage: 'Session planning requires at least 1 checked-in participant.',
+      primaryReasons: ['Participant attendance is zero.'],
+      suggestedChanges: [{ type: 'ADD_ATTENDANCE', label: 'Check in present players' }]
+    };
+  }
+
   const template = requestedDuration <= 65 
     ? SESSION_TEMPLATES.EXPRESS_60_MIN 
     : SESSION_TEMPLATES.STANDARD_90_MIN;
+
+  const durationScaleFactor = requestedDuration / template.totalDuration;
 
   const failedBlocks = [];
   const populatedBlocks = [];
@@ -68,6 +55,7 @@ function generateStandardTrainingPlan({
   for (const blockDef of template.requiredBlocks) {
     if (blockDef.type === 'CONCURRENT_STATIONS') {
       const stationsCount = blockDef.stationsCount || 2;
+      const effectiveStationParticipants = Math.max(1, Math.ceil(participantCount / stationsCount));
       const stations = [];
 
       for (let sIdx = 0; sIdx < stationsCount; sIdx++) {
@@ -78,7 +66,7 @@ function generateStandardTrainingPlan({
           coachLevelId,
           venueId,
           equipmentAvailable,
-          participantCount,
+          participantCount: effectiveStationParticipants,
           usedActivityIds,
           activeRuleset
         });
@@ -98,8 +86,8 @@ function generateStandardTrainingPlan({
 
         usedActivityIds.add(candidate.id);
 
-        const targetDuration = Math.min(blockDef.idealDuration, candidate.durationRange.max);
-        const assignedDuration = Math.max(candidate.durationRange.min, Math.min(candidate.durationRange.max, targetDuration));
+        const scaledTarget = Math.round(blockDef.idealDuration * durationScaleFactor);
+        const assignedDuration = Math.max(candidate.durationRange.min, Math.min(candidate.durationRange.max, scaledTarget));
 
         stations.push({
           ...candidate,
@@ -151,8 +139,8 @@ function generateStandardTrainingPlan({
 
       usedActivityIds.add(candidate.id);
 
-      const targetDuration = Math.min(blockDef.idealDuration, candidate.durationRange.max);
-      const assignedDuration = Math.max(candidate.durationRange.min, Math.min(candidate.durationRange.max, targetDuration));
+      const scaledTarget = Math.round(blockDef.idealDuration * durationScaleFactor);
+      const assignedDuration = Math.max(candidate.durationRange.min, Math.min(candidate.durationRange.max, scaledTarget));
 
       populatedBlocks.push({
         blockId: blockDef.blockId,

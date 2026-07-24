@@ -1,24 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { COHORTS } from '../config/cohorts';
-import { COACH_LEVELS } from '../config/coachLevels';
 import { VENUE_MODELS } from '../config/venues';
 import { ACTIVITY_CATEGORIES } from '../config/activityCategories';
 import { generateTrainingPlan, calculateBattingCapacity } from '../engine/deterministicPlanner';
 import { searchActivities } from '../data/retrievalIndex';
-import ContextualTaggingModal from './ContextualTaggingModal';
 
 export default function TrainingLab({
   squad = [],
   subscriptionTier,
-  apiKey,
   selectedCoachLevel,
   activeRuleset,
   onSaveVideoClip
 }) {
-  // Preserved User Flow State:
-  // 'attendance' | 'parameters' | 'review' | 'active_guided' | 'history'
+  // Product Flow Steps: 'attendance' | 'parameters' | 'review' | 'active_guided' | 'history'
   const [step, setStep] = useState('attendance');
-  const [presentPlayerIds, setPresentPlayerIds] = useState([]);
+  
+  // Attendance State (Does NOT force repopulate if coach intentionally deselects everyone)
+  const [presentPlayerIds, setPresentPlayerIds] = useState(() => squad.map(p => p.id));
 
   // Session Type State ('STANDARD_SESSION' | 'NETS_SESSION')
   const [sessionType, setSessionType] = useState('STANDARD_SESSION');
@@ -30,6 +28,7 @@ export default function TrainingLab({
   
   // Standard Multi-Select Focus Picker State
   const [selectedFocusIds, setSelectedFocusIds] = useState(['Batting', 'Ground Fielding']);
+  const [focusToAdd, setFocusToAdd] = useState('');
 
   // Nets Session Specific Parameters
   const [numberOfNets, setNumberOfNets] = useState(2);
@@ -47,20 +46,16 @@ export default function TrainingLab({
   const [activePlan, setActivePlan] = useState(null);
   const [generatedDrills, setGeneratedDrills] = useState([]);
   const [failureDiagnostics, setFailureDiagnostics] = useState(null);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
   // Active Guided Coaching State
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [currentRotationIndex, setCurrentRotationIndex] = useState(0);
 
-  const [sessionHistory, setSessionHistory] = useState([]);
-
-  // Initialize attendance checklist
-  useEffect(() => {
-    if (squad.length > 0 && presentPlayerIds.length === 0) {
-      setPresentPlayerIds(squad.map(p => p.id));
-    }
-  }, [squad]);
+  // Late Arrival Modal State
+  const [isLateModalOpen, setIsLateModalOpen] = useState(false);
+  const [lateName, setLateName] = useState('');
 
   const togglePlayerAttendance = (id) => {
     setPresentPlayerIds(prev => 
@@ -68,14 +63,36 @@ export default function TrainingLab({
     );
   };
 
-  // Live Batting Time Capacity Calculator
+  const clearDiagnostics = () => {
+    if (failureDiagnostics) setFailureDiagnostics(null);
+  };
+
+  const handleAddStandardFocus = (focusName) => {
+    if (!focusName || selectedFocusIds.includes(focusName)) return;
+    setSelectedFocusIds(prev => [...prev, focusName]);
+    setFocusToAdd('');
+    clearDiagnostics();
+  };
+
+  const handleRemoveStandardFocus = (focusName) => {
+    if (selectedFocusIds.length <= 1) {
+      alert("At least one training focus must remain selected.");
+      return;
+    }
+    setSelectedFocusIds(prev => prev.filter(f => f !== focusName));
+    clearDiagnostics();
+  };
+
+  const availableUnselectedFocuses = ACTIVITY_CATEGORIES.filter(cat => !selectedFocusIds.includes(cat));
+
+  // Live Batting Capacity Recommendation
   const netCapacity = calculateBattingCapacity({
     numberOfNets,
     totalDuration: duration,
     participantCount: presentPlayerIds.length || 10
   });
 
-  // Step 3: Run Authoritative Planner Engine (Standard or Nets)
+  // Run Deterministic Planner Engine
   const handleGeneratePlan = () => {
     setFailureDiagnostics(null);
 
@@ -91,6 +108,7 @@ export default function TrainingLab({
       batterFocuses,
       bowlerFocuses,
       fieldingFocuses,
+      squad,
       requestedBattingMinutesPerPlayer: requestedBattingMins ? Number(requestedBattingMins) : null,
       coachLevelId: selectedCoachLevel,
       venueId: selectedVenue,
@@ -100,7 +118,7 @@ export default function TrainingLab({
 
     if (!result.success) {
       setFailureDiagnostics(result);
-      return; // Stay on Parameters screen
+      return;
     }
 
     setActivePlan(result.plan);
@@ -109,7 +127,7 @@ export default function TrainingLab({
     setStep('review');
   };
 
-  // Actionable Suggestion Click Handler
+  // Apply Actionable Suggestion Click Handler
   const handleApplySuggestion = (suggestion) => {
     if (suggestion.type === 'CHANGE_VENUE' && suggestion.targetVenue) {
       setSelectedVenue(suggestion.targetVenue);
@@ -121,24 +139,27 @@ export default function TrainingLab({
       setDuration(suggestion.targetDuration);
     } else if (suggestion.type === 'REMOVE_FOCUS' && suggestion.targetFocus) {
       setSelectedFocusIds(prev => prev.filter(f => f !== suggestion.targetFocus));
+    } else if (suggestion.type === 'ADD_ATTENDANCE') {
+      setPresentPlayerIds(squad.map(p => p.id));
     }
     setFailureDiagnostics(null);
   };
 
-  // Save Session to History
-  const handleEndAndSaveSession = () => {
-    const newHistoryEntry = {
-      id: 'sess_' + Date.now(),
-      date: new Date().toISOString().split('T')[0],
-      sessionType,
-      cohortId: selectedCohort,
-      duration: activePlan?.totalElapsedTime || duration,
-      presentCount: presentPlayerIds.length
+  // Late Arrival Player Injection
+  const handleAddLatePlayer = (e) => {
+    e.preventDefault();
+    if (!lateName.trim()) return;
+    const newId = 'p_late_' + Date.now();
+    const newPlayer = {
+      id: newId,
+      name: lateName.trim(),
+      jersey: squad.length + 1,
+      role: 'Batter'
     };
-    setSessionHistory(prev => [newHistoryEntry, ...prev]);
-    setIsTimerRunning(false);
-    setTimerSeconds(0);
-    setStep('attendance');
+    squad.push(newPlayer);
+    setPresentPlayerIds(prev => [...prev, newId]);
+    setLateName('');
+    setIsLateModalOpen(false);
   };
 
   return (
@@ -167,7 +188,8 @@ export default function TrainingLab({
             {squad.map(player => {
               const isPresent = presentPlayerIds.includes(player.id);
               return (
-                <div 
+                <button 
+                  type="button"
                   key={player.id}
                   onClick={() => togglePlayerAttendance(player.id)}
                   style={{
@@ -178,18 +200,21 @@ export default function TrainingLab({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'space-between'
+                    justifyContent: 'space-between',
+                    color: 'var(--text-primary)',
+                    textAlign: 'left'
                   }}
+                  aria-pressed={isPresent}
                 >
                   <span>#{player.jersey} {player.name}</span>
                   <span style={{ fontSize: '1.1rem' }}>{isPresent ? '✓' : '✗'}</span>
-                </div>
+                </button>
               );
             })}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
-            <button className="btn btn-training" onClick={() => setStep('parameters')}>
+            <button type="button" className="btn btn-training" onClick={() => setStep('parameters')}>
               Next: Configure Parameters →
             </button>
           </div>
@@ -218,7 +243,7 @@ export default function TrainingLab({
                   name="sessionType" 
                   value="STANDARD_SESSION" 
                   checked={sessionType === 'STANDARD_SESSION'} 
-                  onChange={() => setSessionType('STANDARD_SESSION')} 
+                  onChange={() => { setSessionType('STANDARD_SESSION'); clearDiagnostics(); }} 
                 />
                 <span>Standard Team Training</span>
               </label>
@@ -229,7 +254,7 @@ export default function TrainingLab({
                   name="sessionType" 
                   value="NETS_SESSION" 
                   checked={sessionType === 'NETS_SESSION'} 
-                  onChange={() => setSessionType('NETS_SESSION')} 
+                  onChange={() => { setSessionType('NETS_SESSION'); clearDiagnostics(); }} 
                 />
                 <span>🏏 Cricket Nets Session</span>
               </label>
@@ -262,6 +287,7 @@ export default function TrainingLab({
                     {failureDiagnostics.suggestedChanges.map((sug, idx) => (
                       <button 
                         key={idx}
+                        type="button"
                         className="btn btn-secondary"
                         onClick={() => handleApplySuggestion(sug)}
                         style={{ fontSize: '0.8rem', padding: '6px 12px', border: '1px solid var(--color-training)', color: 'var(--color-training)' }}
@@ -280,27 +306,26 @@ export default function TrainingLab({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="form-group">
-                  <label>Available Net Lanes</label>
-                  <input type="number" min="1" max="4" value={numberOfNets} onChange={(e) => setNumberOfNets(Number(e.target.value))} />
+                  <label htmlFor="param-nets">Available Net Lanes</label>
+                  <input id="param-nets" type="number" min="1" max="4" value={numberOfNets} onChange={(e) => { setNumberOfNets(Number(e.target.value)); clearDiagnostics(); }} />
                 </div>
                 <div className="form-group">
-                  <label>Available Coaches</label>
-                  <input type="number" min="1" max="5" value={coachCount} onChange={(e) => setCoachCount(Number(e.target.value))} />
+                  <label htmlFor="param-coaches">Available Coaches</label>
+                  <input id="param-coaches" type="number" min="1" max="5" value={coachCount} onChange={(e) => { setCoachCount(Number(e.target.value)); clearDiagnostics(); }} />
                 </div>
               </div>
 
               <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={openFieldAvailable} onChange={(e) => setOpenFieldAvailable(e.target.checked)} />
+                  <input type="checkbox" checked={openFieldAvailable} onChange={(e) => { setOpenFieldAvailable(e.target.checked); clearDiagnostics(); }} />
                   <span>Open Field Space Available</span>
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={bowlingMachineAvailable} onChange={(e) => setBowlingMachineAvailable(e.target.checked)} />
+                  <input type="checkbox" checked={bowlingMachineAvailable} onChange={(e) => { setBowlingMachineAvailable(e.target.checked); clearDiagnostics(); }} />
                   <span>Bowling Machine Available</span>
                 </label>
               </div>
 
-              {/* Dynamic Batting Time Capacity Recommendation Calculator */}
               <div style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <label style={{ color: 'var(--color-training)', margin: 0, fontWeight: '700' }}>
@@ -315,21 +340,21 @@ export default function TrainingLab({
                 </p>
 
                 <div className="form-group" style={{ marginTop: '10px' }}>
-                  <label style={{ fontSize: '0.8rem' }}>Override Batting Allocation (Minutes per Batter)</label>
+                  <label htmlFor="param-bat-mins" style={{ fontSize: '0.8rem' }}>Override Batting Allocation (Minutes per Batter)</label>
                   <input 
+                    id="param-bat-mins"
                     type="number" 
                     placeholder={`e.g. ${netCapacity.suggestedBattingMinutes}`} 
                     value={requestedBattingMins} 
-                    onChange={(e) => setRequestedBattingMins(e.target.value)} 
+                    onChange={(e) => { setRequestedBattingMins(e.target.value); clearDiagnostics(); }} 
                   />
                 </div>
               </div>
 
-              {/* SEPARATE BATTER, BOWLER & FIELDING FOCUS SELECTORS */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div className="form-group">
-                  <label style={{ color: 'var(--color-match)' }}>🎯 Batter Focus</label>
-                  <select value={batterFocuses[0]} onChange={(e) => setBatterFocuses([e.target.value])}>
+                  <label htmlFor="param-batter-focus" style={{ color: 'var(--color-match)' }}>🎯 Batter Focus</label>
+                  <select id="param-batter-focus" value={batterFocuses[0]} onChange={(e) => { setBatterFocuses([e.target.value]); clearDiagnostics(); }}>
                     <option value="Front Foot Drive">Front Foot Drive & V-Channel</option>
                     <option value="Short-Pitched Pull">Short Ball Pull & Hook</option>
                     <option value="Spin Footwork Sweep">Spin Footwork & Sweep</option>
@@ -338,8 +363,8 @@ export default function TrainingLab({
                 </div>
 
                 <div className="form-group">
-                  <label style={{ color: 'var(--color-tactics)' }}>🎯 Bowler Focus</label>
-                  <select value={bowlerFocuses[0]} onChange={(e) => setBowlerFocuses([e.target.value])}>
+                  <label htmlFor="param-bowler-focus" style={{ color: 'var(--color-tactics)' }}>🎯 Bowler Focus</label>
+                  <select id="param-bowler-focus" value={bowlerFocuses[0]} onChange={(e) => { setBowlerFocuses([e.target.value]); clearDiagnostics(); }}>
                     <option value="Pace Seam Control">Pace Seam Control & Top-of-Off Target</option>
                     <option value="Spin Dip & Drift">Spin Dip, Drift & Revolutions</option>
                     <option value="Death Yorker Execution">Death Yorker & Change-of-Pace Execution</option>
@@ -347,8 +372,8 @@ export default function TrainingLab({
                 </div>
 
                 <div className="form-group">
-                  <label style={{ color: 'var(--color-training)' }}>🎯 Off-Net Fielding Focus</label>
-                  <select value={fieldingFocuses[0]} onChange={(e) => setFieldingFocuses([e.target.value])}>
+                  <label htmlFor="param-fielding-focus" style={{ color: 'var(--color-training)' }}>🎯 Off-Net Fielding Focus</label>
+                  <select id="param-fielding-focus" value={fieldingFocuses[0]} onChange={(e) => { setFieldingFocuses([e.target.value]); clearDiagnostics(); }}>
                     <option value="Ground Fielding">Ground Fielding & Direct-Hits</option>
                     <option value="High Catching">High Catching & Boundary Relays</option>
                     <option value="Slip Catching">Attacking Slip Cordon Reaction</option>
@@ -360,8 +385,8 @@ export default function TrainingLab({
             /* STANDARD SESSION PARAMETERS */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="form-group">
-                <label>Participant Cohort</label>
-                <select value={selectedCohort} onChange={(e) => setSelectedCohort(e.target.value)}>
+                <label htmlFor="param-cohort">Participant Cohort</label>
+                <select id="param-cohort" value={selectedCohort} onChange={(e) => { setSelectedCohort(e.target.value); clearDiagnostics(); }}>
                   {Object.values(COHORTS).map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
@@ -369,24 +394,78 @@ export default function TrainingLab({
               </div>
 
               <div className="form-group">
-                <label>Venue / Net Lanes Availability</label>
-                <select value={selectedVenue} onChange={(e) => setSelectedVenue(e.target.value)}>
+                <label htmlFor="param-venue">Venue / Net Lanes Availability</label>
+                <select id="param-venue" value={selectedVenue} onChange={(e) => { setSelectedVenue(e.target.value); clearDiagnostics(); }}>
                   {VENUE_MODELS.map(v => (
                     <option key={v.id} value={v.id}>{v.name}</option>
                   ))}
                 </select>
               </div>
+
+              {/* Standard Session Multi-Select Focus Picker (Restored M1) */}
+              <div className="form-group" style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
+                <label style={{ color: 'var(--color-training)', marginBottom: '8px' }}>
+                  Tactical / Technical Focus Priorities ({selectedFocusIds.length} Selected)
+                </label>
+                
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                  {selectedFocusIds.map(fId => (
+                    <span 
+                      key={fId}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        backgroundColor: 'var(--color-training-glow)',
+                        border: '1px solid var(--color-training)',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.85rem',
+                        fontWeight: '600'
+                      }}
+                    >
+                      🎯 {fId}
+                      <button 
+                        type="button" 
+                        onClick={() => handleRemoveStandardFocus(fId)}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', padding: '0 2px' }}
+                        aria-label={`Remove ${fId}`}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <select 
+                    id="param-add-focus"
+                    value={focusToAdd}
+                    onChange={(e) => {
+                      setFocusToAdd(e.target.value);
+                      if (e.target.value) handleAddStandardFocus(e.target.value);
+                    }}
+                    style={{ flex: 1, fontSize: '0.85rem' }}
+                  >
+                    <option value="">+ Add Training Focus Priority...</option>
+                    {availableUnselectedFocuses.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
           )}
 
           <div className="form-group">
-            <label>Total Session Duration ({duration} Minutes)</label>
-            <input type="range" min="30" max="120" step="15" value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+            <label htmlFor="param-duration">Total Session Duration ({duration} Minutes)</label>
+            <input id="param-duration" type="range" min="30" max="120" step="15" value={duration} onChange={(e) => { setDuration(Number(e.target.value)); clearDiagnostics(); }} />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
-            <button className="btn btn-secondary" onClick={() => setStep('attendance')}>← Back</button>
-            <button className="btn btn-training" onClick={handleGeneratePlan}>
+            <button type="button" className="btn btn-secondary" onClick={() => setStep('attendance')}>← Back</button>
+            <button type="button" className="btn btn-training" onClick={handleGeneratePlan}>
               ⚡ Run Deterministic Planner Engine
             </button>
           </div>
@@ -414,22 +493,20 @@ export default function TrainingLab({
                 </div>
               </div>
 
-              {/* BATTING ALLOCATION SUMMARY TABLE */}
               <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <h3 className="scoreboard-font" style={{ color: 'var(--color-match)', margin: 0, fontSize: '1.1rem' }}>
                   Batting Allocation Summary ({activePlan.battingSummary?.length} Batters — 1 Turn Each)
                 </h3>
                 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px', fontSize: '0.85rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px', fontSize: '0.85rem' }}>
                   {activePlan.battingSummary?.map((bs, idx) => (
                     <div key={idx} style={{ background: 'var(--bg-floor)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-                      <strong>{bs.playerId}</strong> — {bs.allocatedMinutes} min — {bs.netName} — Rotation {bs.rotationNumber}
+                      <strong>{bs.name}</strong> — {bs.allocatedMinutes} min — {bs.netName} — Rotation {bs.rotationNumber}
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Rotations Breakdown */}
               {activePlan.rotations.map((rot) => (
                 <div key={rot.rotationNumber} style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <h3 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0, fontSize: '1.1rem' }}>
@@ -465,15 +542,19 @@ export default function TrainingLab({
               ))}
             </div>
           ) : (
-            /* STANDARD SESSION REVIEW VIEW */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
-                Review Training Plan ({generatedDrills.length} Drills)
+                Review Training Plan ({generatedDrills.length} Drills — {activePlan.totalElapsedTime}m)
               </h2>
 
               {generatedDrills.map((drill, idx) => (
                 <div key={`${drill.id}_${idx}`} style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <h3 style={{ fontSize: '1.1rem', margin: 0 }}>#{drill.id} - {drill.title}</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: '1.1rem', margin: 0 }}>#{drill.id} - {drill.title}</h3>
+                    <span className="badge" style={{ background: 'var(--color-training-glow)', color: 'var(--color-training)' }}>
+                      {drill.assignedDuration} mins
+                    </span>
+                  </div>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{drill.setup}</p>
                 </div>
               ))}
@@ -481,15 +562,15 @@ export default function TrainingLab({
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
-            <button className="btn btn-secondary" onClick={() => setStep('parameters')}>← Adjust Parameters</button>
-            <button className="btn btn-training" onClick={() => setStep('active_guided')}>
+            <button type="button" className="btn btn-secondary" onClick={() => setStep('parameters')}>← Adjust Parameters</button>
+            <button type="button" className="btn btn-training" onClick={() => setStep('active_guided')}>
               ▶ Start Session (Guided Live Mode)
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 7: Guided Active Coaching Mode */}
+      {/* Step 5: Guided Active Coaching Mode */}
       {step === 'active_guided' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center', textAlign: 'center' }}>
           <div className="badge badge-ruleset" style={{ fontSize: '0.8rem' }}>GUIDED ACTIVE COACHING MODE</div>
@@ -499,20 +580,23 @@ export default function TrainingLab({
           </div>
 
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button className="btn btn-training" onClick={() => setIsTimerRunning(!isTimerRunning)}>
+            <button type="button" className="btn btn-training" onClick={() => setIsTimerRunning(!isTimerRunning)}>
               {isTimerRunning ? '⏸ Pause Timer' : '▶ Start Timer'}
             </button>
             {activePlan?.sessionType === 'NETS_SESSION' && (
               <button 
+                type="button"
                 className="btn btn-secondary" 
                 onClick={() => setCurrentRotationIndex((prev) => (prev + 1) % activePlan.rotations.length)}
               >
                 🔄 Next Rotation ({currentRotationIndex + 1}/{activePlan.rotations.length})
               </button>
             )}
+            <button type="button" className="btn btn-secondary" onClick={() => setIsLateModalOpen(true)}>
+              ➕ Hot-Inject Late Arrival
+            </button>
           </div>
 
-          {/* NETS ROTATION GUIDED STATUS CARD */}
           {activePlan?.sessionType === 'NETS_SESSION' ? (
             <div style={{ width: '100%', maxWidth: '560px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '14px', padding: '20px', textAlign: 'left' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -527,7 +611,7 @@ export default function TrainingLab({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
                 {activePlan.rotations[currentRotationIndex]?.stations.map(st => (
                   <div key={st.stationId} style={{ background: 'var(--bg-floor)', padding: '10px', borderRadius: '8px' }}>
-                    <strong>{st.name} ({st.assignedGroup}):</strong> {st.type === 'NET_LANE' ? `Batters (Single Turn): ${st.batters.join(', ') || 'Queue Completed'} | Bowlers: ${st.bowlers.join(', ')}` : `Fielding: ${st.players.join(', ')}`}
+                    <strong>{st.name} ({st.assignedGroup}):</strong> {st.type === 'NET_LANE' ? `Batters: ${st.batters.join(', ') || 'Queue Completed'} | Bowlers: ${st.bowlers.join(', ')}` : `Fielding: ${st.players.join(', ')}`}
                   </div>
                 ))}
               </div>
@@ -541,9 +625,28 @@ export default function TrainingLab({
             </div>
           )}
 
-          <button className="btn btn-secondary" onClick={handleEndAndSaveSession} style={{ marginTop: '20px' }}>
+          <button type="button" className="btn btn-secondary" onClick={() => setStep('attendance')} style={{ marginTop: '20px' }}>
             End & Save Session Log
           </button>
+        </div>
+      )}
+
+      {/* Late Arrival Player Modal */}
+      {isLateModalOpen && (
+        <div className="overlay-backdrop" onClick={() => setIsLateModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>Hot-Inject Late Arrival Player</h3>
+              <button type="button" className="icon-btn" onClick={() => setIsLateModalOpen(false)} aria-label="Close modal">✕</button>
+            </div>
+            <form onSubmit={handleAddLatePlayer} className="modal-body">
+              <div className="form-group">
+                <label htmlFor="late-player-name">Player Name</label>
+                <input id="late-player-name" type="text" value={lateName} onChange={(e) => setLateName(e.target.value)} required />
+              </div>
+              <button type="submit" className="btn btn-training">Inject Player into Roster & Attendance</button>
+            </form>
+          </div>
         </div>
       )}
     </div>
