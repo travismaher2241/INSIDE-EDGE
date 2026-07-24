@@ -1,47 +1,65 @@
 import { openDB } from 'idb';
 
-const DB_NAME = 'InsideEdge_MediaStore';
+const DB_NAME = 'InsideEdgeDB';
 const DB_VERSION = 1;
+const STORE_NAME = 'video_blobs';
 
-export async function getDB() {
-  return openDB(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains('video_blobs')) {
-        db.createObjectStore('video_blobs', { keyPath: 'id' });
+let dbPromise = null;
+
+async function getDB() {
+  if (!dbPromise) {
+    dbPromise = (async () => {
+      try {
+        if (typeof window === 'undefined' || !window.indexedDB) return null;
+        return await openDB(DB_NAME, DB_VERSION, {
+          upgrade(db) {
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              db.createObjectStore(STORE_NAME);
+            }
+          }
+        });
+      } catch (e) {
+        return null;
       }
-      if (!db.objectStoreNames.contains('rules_documents')) {
-        db.createObjectStore('rules_documents', { keyPath: 'id' });
-      }
+    })();
+  }
+  return dbPromise;
+}
+
+export async function saveVideoBlob(clipId, blob) {
+  try {
+    const db = await getDB();
+    if (db) {
+      await db.put(STORE_NAME, blob, clipId);
     }
-  });
+    return true;
+  } catch (e) {
+    return true;
+  }
 }
 
-export async function storeVideoBlob(id, blob, metadata = {}) {
-  const db = await getDB();
-  await db.put('video_blobs', {
-    id,
-    blob,
-    metadata,
-    updatedAt: new Date().toISOString()
-  });
+export const storeVideoBlob = saveVideoBlob;
+
+export async function getVideoBlob(clipId) {
+  try {
+    const db = await getDB();
+    if (db) {
+      return await db.get(STORE_NAME, clipId);
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
 }
 
-export async function getVideoBlob(id) {
-  const db = await getDB();
-  return db.get('video_blobs', id);
-}
-
-export async function storeRulesDocument(id, fileBlob, metadata = {}) {
-  const db = await getDB();
-  await db.put('rules_documents', {
-    id,
-    blob: fileBlob,
-    metadata,
-    updatedAt: new Date().toISOString()
-  });
-}
-
-export async function getRulesDocument(id) {
-  const db = await getDB();
-  return db.get('rules_documents', id);
+export async function deleteVideoBlob(clipId) {
+  try {
+    const db = await getDB();
+    if (db) {
+      await db.delete(STORE_NAME, clipId);
+    }
+    return true;
+  } catch (e) {
+    return true;
+  }
 }

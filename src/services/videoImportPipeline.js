@@ -1,4 +1,4 @@
-import { storeVideoBlob } from './dbStorage';
+import { saveVideoBlob } from './dbStorage';
 
 export const IMPORT_STAGES = {
   QUEUED: 'QUEUED',
@@ -10,20 +10,20 @@ export const IMPORT_STAGES = {
 };
 
 export async function processVideoImport(file, onProgress) {
-  const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+  const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
 
   // Stage 1: Queued
-  onProgress && onProgress({ requestId, stage: IMPORT_STAGES.QUEUED, progress: 10 });
+  if (onProgress) onProgress({ requestId, stage: IMPORT_STAGES.QUEUED, progress: 10 });
 
   // Stage 2: Format Check & Browser Validation
-  onProgress && onProgress({ requestId, stage: IMPORT_STAGES.VALIDATING, progress: 30 });
+  if (onProgress) onProgress({ requestId, stage: IMPORT_STAGES.VALIDATING, progress: 30 });
   const validTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
   if (!validTypes.includes(file.type) && !file.name.match(/\.(mp4|webm|mov)$/i)) {
     throw new Error(`Unsupported media format (${file.type || file.name}). Please upload MP4, WebM, or MOV.`);
   }
 
-  // Stage 3: Extracting Metadata
-  onProgress && onProgress({ requestId, stage: IMPORT_STAGES.EXTRACTING_METADATA, progress: 60 });
+  // Stage 3: Extracting Metadata & Creating Ephemeral URL
+  if (onProgress) onProgress({ requestId, stage: IMPORT_STAGES.EXTRACTING_METADATA, progress: 60 });
   const objectUrl = URL.createObjectURL(file);
   const metadata = {
     fileName: file.name,
@@ -32,16 +32,17 @@ export async function processVideoImport(file, onProgress) {
     importedAt: new Date().toISOString()
   };
 
-  // Stage 4: Generating Thumbnail
-  onProgress && onProgress({ requestId, stage: IMPORT_STAGES.GENERATING_THUMBNAIL, progress: 85 });
-  const clipId = 'v_' + Date.now();
+  // Stage 4: Generating Thumbnail & ID
+  if (onProgress) onProgress({ requestId, stage: IMPORT_STAGES.GENERATING_THUMBNAIL, progress: 85 });
+  const clipId = 'v_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
 
-  // Stage 5: Store in IndexedDB
-  await storeVideoBlob(clipId, file, metadata);
+  // Stage 5: Store Binary Blob in IndexedDB
+  await saveVideoBlob(clipId, file);
 
-  onProgress && onProgress({ requestId, stage: IMPORT_STAGES.STORED, progress: 100 });
+  if (onProgress) onProgress({ requestId, stage: IMPORT_STAGES.STORED, progress: 100 });
 
   return {
+    id: clipId,
     clipId,
     requestId,
     videoUrl: objectUrl,
