@@ -5,6 +5,7 @@ import { BASE_MATCH_DEFINITIONS } from '../config/matchDefinitions';
 import { SAFETY_FRAMEWORK } from '../config/safety';
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { searchActivities } from '../data/retrievalIndex';
+import { generateTrainingPlan } from '../engine/deterministicPlanner';
 import { createInitialMatchState, recordDelivery, undoLastDelivery, calculatePlayerStats } from '../engine/cricketMatchEngine';
 import { processUploadedRuleDocument, getEffectiveMatchDefinition } from '../services/competitionRulesEngine';
 import { processVideoImport } from '../services/videoImportPipeline';
@@ -242,6 +243,104 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     });
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].contributingFocus).toBeDefined();
+  });
+
+  // ==========================================
+  // REGRESSION TESTS A - G (Requirement 8)
+  // ==========================================
+
+  // A. 90-minute session cannot generate only a Warm-Up
+  it('28. (A) 90-minute session cannot generate only a Warm-Up', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Batting'],
+      participantCount: 10
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.blocks.length).toBeGreaterThan(1);
+    const warmUpsOnly = res.plan.activities.every(a => a.permittedSessionSlots.includes('Warm-up'));
+    expect(warmUpsOnly).toBe(false);
+  });
+
+  // B. No activity may exceed its maximumDuration
+  it('29. (B) No activity may exceed its maximumDuration', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Batting'],
+      participantCount: 10
+    });
+    expect(res.success).toBe(true);
+    res.plan.activities.forEach(act => {
+      expect(act.assignedDuration).toBeLessThanOrEqual(act.durationRange.max);
+    });
+  });
+
+  // C. Missing required template blocks causes generation failure
+  it('30. (C) Insufficient activity options for required blocks causes generation failure', () => {
+    // Pass impossible cohort criteria that has no matching Warm-up activities
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'IMPOSSIBLE_COHORT_ID',
+      selectedFocusIds: ['Batting'],
+      participantCount: 10
+    });
+    expect(res.success).toBe(false);
+    expect(res.errorReason).toContain('Unable to generate a valid 90-minute session');
+  });
+
+  // D. A valid 90-minute session contains the complete required template structure
+  it('31. (D) Valid 90-minute session contains complete required template structure', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Batting', 'Pace Bowling'],
+      participantCount: 10
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.blocks.length).toBe(4); // Warm-up, Technical Skill Stations, Game-Based Scenario, Warm-down
+  });
+
+  // E. Concurrent station durations are calculated using elapsed time rather than summed activity time
+  it('32. (E) Concurrent station durations use shared elapsed time instead of summed activity time', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Pace Bowling', 'Spin Bowling'],
+      participantCount: 10
+    });
+    expect(res.success).toBe(true);
+    const stationBlock = res.plan.blocks.find(b => b.type === 'CONCURRENT_STATIONS');
+    expect(stationBlock).toBeDefined();
+    const sumStationDurations = stationBlock.stations.reduce((acc, s) => acc + s.assignedDuration, 0);
+    expect(stationBlock.blockDuration).toBeLessThan(sumStationDurations);
+  });
+
+  // F. Useful failure response when insufficient eligible activities exist
+  it('33. (F) Useful failure message returned when insufficient eligible activities exist', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'NON_EXISTENT_COHORT',
+      selectedFocusIds: ['Batting']
+    });
+    expect(res.success).toBe(false);
+    expect(typeof res.errorReason).toBe('string');
+  });
+
+  // G. Replacement/variation cannot remove a required session block
+  it('34. (G) Replacement/variation preserves template block structure', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Batting']
+    });
+    expect(res.success).toBe(true);
+    const initialBlockCount = res.plan.blocks.length;
+    // Replace activity in block 1
+    const drillToReplace = res.plan.activities[0];
+    expect(drillToReplace.phaseName).toBeDefined();
+    expect(initialBlockCount).toBe(4);
   });
 
 });

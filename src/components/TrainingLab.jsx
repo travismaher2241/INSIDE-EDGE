@@ -3,6 +3,7 @@ import { COHORTS } from '../config/cohorts';
 import { COACH_LEVELS } from '../config/coachLevels';
 import { VENUE_MODELS } from '../config/venues';
 import { ACTIVITY_CATEGORIES } from '../config/activityCategories';
+import { generateTrainingPlan } from '../engine/deterministicPlanner';
 import { searchActivities } from '../data/retrievalIndex';
 import ContextualTaggingModal from './ContextualTaggingModal';
 
@@ -28,8 +29,10 @@ export default function TrainingLab({
   const [selectedFocusIds, setSelectedFocusIds] = useState(['Batting', 'Ground Fielding']);
   const [focusToAdd, setFocusToAdd] = useState('');
 
-  // Generated Plan State
+  // Generated Plan & Validation Error State
+  const [activePlan, setActivePlan] = useState(null);
   const [generatedDrills, setGeneratedDrills] = useState([]);
+  const [generationError, setGenerationError] = useState(null);
   const [isAiEnhanced, setIsAiEnhanced] = useState(false);
   const [sessionHistory, setSessionHistory] = useState([]);
 
@@ -69,31 +72,40 @@ export default function TrainingLab({
     setSelectedFocusIds(prev => prev.filter(f => f !== focusName));
   };
 
-  // Available Focuses not yet selected
   const availableUnselectedFocuses = ACTIVITY_CATEGORIES.filter(cat => !selectedFocusIds.includes(cat));
 
-  // Step 3: Local Deterministic Planner with Multi-Focus Priorities
+  // Step 3: Run Authoritative Deterministic Planner Engine
   const handleGeneratePlan = () => {
-    const candidateDrills = searchActivities({
+    setGenerationError(null);
+
+    const result = generateTrainingPlan({
+      requestedDuration: duration,
       cohortId: selectedCohort,
       selectedFocusIds,
       coachLevelId: selectedCoachLevel,
-      maxParticipants: presentPlayerIds.length
+      venueId: selectedVenue,
+      participantCount: presentPlayerIds.length
     });
 
-    setGeneratedDrills(candidateDrills);
+    if (!result.success) {
+      setGenerationError(result.errorReason);
+      return;
+    }
+
+    setActivePlan(result.plan);
+    setGeneratedDrills(result.plan.activities);
     setStep('review');
   };
 
-  // Step 5: Replace Drill preserving multi-focus intent
+  // Step 5: Replace Drill preserving multi-focus intent and template structure
   const handleReplaceDrill = (drillId) => {
     const candidates = searchActivities({
       cohortId: selectedCohort,
       selectedFocusIds,
       maxParticipants: presentPlayerIds.length
     });
-    const replacement = candidates.find(c => c.id !== drillId) || candidates[0];
-    setGeneratedDrills(prev => prev.map(d => d.id === drillId ? replacement : d));
+    const replacement = candidates.find(c => c.id !== drillId && !generatedDrills.some(d => d.id === c.id)) || candidates[0];
+    setGeneratedDrills(prev => prev.map(d => d.id === drillId ? { ...replacement, phaseName: d.phaseName, assignedDuration: d.assignedDuration, contributingFocus: d.contributingFocus } : d));
   };
 
   // Save Session to History
@@ -103,7 +115,7 @@ export default function TrainingLab({
       date: new Date().toISOString().split('T')[0],
       cohortId: selectedCohort,
       selectedFocusIds: [...selectedFocusIds],
-      duration,
+      duration: activePlan?.totalElapsedTime || duration,
       drillCount: generatedDrills.length,
       presentCount: presentPlayerIds.length
     };
@@ -189,6 +201,16 @@ export default function TrainingLab({
             </p>
           </div>
 
+          {/* Validation Failure Error Banner */}
+          {generationError && (
+            <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '12px', color: '#ef4444', fontSize: '0.85rem' }}>
+              <div style={{ fontWeight: '700', fontSize: '0.95rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>⚠️</span> Generation Failure
+              </div>
+              {generationError}
+            </div>
+          )}
+
           <div className="form-group">
             <label>Participant Cohort</label>
             <select value={selectedCohort} onChange={(e) => setSelectedCohort(e.target.value)}>
@@ -218,7 +240,6 @@ export default function TrainingLab({
               Tactical / Technical Focus Priorities ({selectedFocusIds.length} Selected)
             </label>
             
-            {/* Selected Removable Chips */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
               {selectedFocusIds.map(fId => (
                 <span 
@@ -249,7 +270,6 @@ export default function TrainingLab({
               ))}
             </div>
 
-            {/* Add Focus Control */}
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <select 
                 value={focusToAdd}
@@ -265,9 +285,6 @@ export default function TrainingLab({
                 ))}
               </select>
             </div>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
-              Select any combination of focuses (e.g. Batting + Pace Bowling + Ground Fielding). The planner balances coverage across your target priorities.
-            </p>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
@@ -280,20 +297,16 @@ export default function TrainingLab({
       )}
 
       {/* Step 4 & 5: Review Activities & Replacements */}
-      {step === 'review' && (
+      {step === 'review' && activePlan && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
             <div>
+              <div className="badge badge-ruleset" style={{ fontSize: '0.7rem', marginBottom: '4px' }}>
+                TEMPLATE: {activePlan.templateName} ({activePlan.totalElapsedTime}m Elapsed)
+              </div>
               <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
                 Step 4: Review Training Plan ({generatedDrills.length} Drills)
               </h2>
-              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-                {selectedFocusIds.map(f => (
-                  <span key={f} className="badge" style={{ background: 'var(--color-training-glow)', color: 'var(--color-training)' }}>
-                    🎯 {f}
-                  </span>
-                ))}
-              </div>
             </div>
             <button className="btn btn-secondary" onClick={() => setIsAiEnhanced(!isAiEnhanced)} style={{ fontSize: '0.75rem' }}>
               {isAiEnhanced ? '✨ Text AI Enhanced' : '✨ Enhance Text Wording'}
@@ -302,11 +315,11 @@ export default function TrainingLab({
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {generatedDrills.map((drill, idx) => (
-              <div key={drill.id} style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div key={`${drill.id}_${idx}`} style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <span className="badge" style={{ background: 'var(--color-training-glow)', color: 'var(--color-training)' }}>
-                      Block {idx + 1}: {drill.permittedSessionSlots?.[0] || 'Activity'}
+                      Block {idx + 1}: {drill.phaseName || drill.permittedSessionSlots?.[0]} ({drill.assignedDuration || 15}m)
                     </span>
                     <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--color-match)' }}>
                       Contributes to: {drill.contributingFocus}
