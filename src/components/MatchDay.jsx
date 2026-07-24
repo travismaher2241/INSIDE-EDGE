@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { createInitialMatchState, recordDelivery, undoLastDelivery } from '../engine/cricketMatchEngine';
+import { createInitialMatchState, recordDelivery, undoLastDelivery, EXTRAS_TYPES, DISMISSAL_TYPES } from '../engine/cricketMatchEngine';
 import ContextualTaggingModal from './ContextualTaggingModal';
 
 export default function MatchDay({
@@ -16,12 +16,13 @@ export default function MatchDay({
   const [pendingVideo, setPendingVideo] = useState(null);
 
   const currentInnings = matchState.innings[matchState.currentInningsIndex];
-  const currentOver = currentInnings.overs[currentInnings.overs.length - 1];
 
-  const handleDelivery = (runsBat, extraType = 'NONE', wicketType = 'NONE') => {
+  const handleDelivery = (runsBat = 0, extraType = EXTRAS_TYPES.NONE, wicketType = DISMISSAL_TYPES.NONE) => {
+    const isByeOrLegBye = extraType === EXTRAS_TYPES.BYE || extraType === EXTRAS_TYPES.LEG_BYE;
+
     const updated = recordDelivery(matchState, {
-      runsBat,
-      runsExtra: (extraType === 'WIDE' || extraType === 'NO_BALL') ? 1 : 0,
+      runsBat: isByeOrLegBye ? 0 : runsBat,
+      runsExtra: isByeOrLegBye ? Math.max(1, runsBat) : 0,
       extraType,
       wicketType,
       bowlerId: matchState.activeBowlerId
@@ -60,7 +61,7 @@ export default function MatchDay({
       {/* Main Scoreboard Display */}
       <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'center' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-          <span>Format: <strong>{matchState.matchDef?.name || 'T20'}</strong></span>
+          <span>Format: <strong>{matchState.matchDef?.formatId || 'T20'}</strong></span>
           <span>Innings {matchState.currentInningsIndex + 1} of 2</span>
         </div>
 
@@ -72,6 +73,12 @@ export default function MatchDay({
             ({currentInnings.oversBowled}.{currentInnings.ballsInCurrentOver} / {matchState.matchDef?.maxOversPerInnings || 20} Ov)
           </div>
         </div>
+
+        {matchState.isMatchComplete && (
+          <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#10b981', padding: '10px', borderRadius: '8px', fontWeight: '700' }}>
+            🏆 Match Result: {matchState.matchResultSummary}
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: 'var(--bg-floor)', padding: '12px', borderRadius: '8px', fontSize: '0.85rem' }}>
           <div>Striker: <strong>{matchState.activeStrikerId || 'Batter 1'}</strong></div>
@@ -88,7 +95,7 @@ export default function MatchDay({
         {/* Runs Buttons */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' }}>
           {[0, 1, 2, 3, 4, 6].map(runs => (
-            <button key={runs} className="btn btn-match" onClick={() => handleDelivery(runs)} style={{ fontSize: '1.2rem', fontWeight: '800', padding: '12px' }}>
+            <button key={runs} type="button" className="btn btn-match" onClick={() => handleDelivery(runs)} style={{ fontSize: '1.2rem', fontWeight: '800', padding: '12px' }}>
               {runs}
             </button>
           ))}
@@ -96,14 +103,14 @@ export default function MatchDay({
 
         {/* Extras & Wicket Buttons */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={() => handleDelivery(0, 'WIDE')}>Wide (+1)</button>
-          <button className="btn btn-secondary" onClick={() => handleDelivery(0, 'NO_BALL')}>No-Ball (+1)</button>
-          <button className="btn btn-secondary" onClick={() => handleDelivery(1, 'BYE')}>Bye (+1)</button>
-          <button className="btn btn-secondary" onClick={() => handleDelivery(1, 'LEG_BYE')}>Leg-Bye (+1)</button>
-          <button className="btn btn-secondary" onClick={() => handleDelivery(0, 'NONE', 'BOWLED')} style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}>
+          <button type="button" className="btn btn-secondary" onClick={() => handleDelivery(0, EXTRAS_TYPES.WIDE)}>Wide (+1)</button>
+          <button type="button" className="btn btn-secondary" onClick={() => handleDelivery(0, EXTRAS_TYPES.NO_BALL)}>No-Ball (+1)</button>
+          <button type="button" className="btn btn-secondary" onClick={() => handleDelivery(1, EXTRAS_TYPES.BYE)}>Bye (+1)</button>
+          <button type="button" className="btn btn-secondary" onClick={() => handleDelivery(1, EXTRAS_TYPES.LEG_BYE)}>Leg-Bye (+1)</button>
+          <button type="button" className="btn btn-secondary" onClick={() => handleDelivery(0, EXTRAS_TYPES.NONE, DISMISSAL_TYPES.BOWLED)} style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}>
             ☝️ Wicket (Out)
           </button>
-          <button className="btn btn-secondary" onClick={handleUndo}>
+          <button type="button" className="btn btn-secondary" onClick={handleUndo}>
             ↩ Undo Ball
           </button>
         </div>

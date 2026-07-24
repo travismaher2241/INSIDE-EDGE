@@ -1,17 +1,38 @@
 /**
  * Cricket Match-State Engine Model
  * Hierarchical Engine: Match -> Innings -> Over -> Delivery
- * Dynamically driven by EffectiveMatchDefinition configuration
+ * Dynamically driven by EffectiveMatchDefinition configuration with Cricket Invariants
  */
+
+export const DISMISSAL_TYPES = {
+  NONE: 'NONE',
+  BOWLED: 'BOWLED',
+  CAUGHT: 'CAUGHT',
+  LBW: 'LBW',
+  RUN_OUT: 'RUN_OUT',
+  STUMPED: 'STUMPED',
+  HIT_WICKET: 'HIT_WICKET',
+  RETIRED_HURT: 'RETIRED_HURT',
+  OBSTRUCTING_FIELD: 'OBSTRUCTING_FIELD',
+  HANDLED_BALL: 'HANDLED_BALL'
+};
+
+export const EXTRAS_TYPES = {
+  NONE: 'NONE',
+  WIDE: 'WIDE',
+  NO_BALL: 'NO_BALL',
+  BYE: 'BYE',
+  LEG_BYE: 'LEG_BYE'
+};
 
 export function createInitialMatchState(matchFormatId = 'T20', effectiveMatchDef = null, homeTeamId = 't1', awayTeamId = 't2') {
   const matchDef = effectiveMatchDef || {
-    formatId: 'T20',
+    formatId: matchFormatId || 'T20',
     maxOversPerInnings: 20,
     maxOversPerBowler: 4,
     ballsPerOver: 6,
-    dismissalTypesAllowed: ['BOWLED', 'CAUGHT', 'LBW', 'RUN_OUT', 'STUMPED'],
-    extrasAllowed: ['WIDE', 'NO_BALL', 'BYE', 'LEG_BYE'],
+    dismissalTypesAllowed: Object.values(DISMISSAL_TYPES),
+    extrasAllowed: Object.values(EXTRAS_TYPES),
     inningsCompletionRules: 'TEN_WICKETS_OR_MAX_OVERS'
   };
 
@@ -25,7 +46,8 @@ export function createInitialMatchState(matchFormatId = 'T20', effectiveMatchDef
     activeStrikerId: null,
     activeNonStrikerId: null,
     activeBowlerId: null,
-    bowlerSpellTracker: {}, // { bowlerId: { oversInSpell: 0, totalOversToday: 0 } }
+    bowlerSpellTracker: {},
+    dismissedPlayerIds: [],
     deliveryHistoryStack: [],
     isMatchComplete: false,
     matchResultSummary: null
@@ -60,31 +82,57 @@ function createInitialOver(overNumber, bowlerId = null) {
 }
 
 /**
- * Record a delivery transaction
+ * Record a delivery transaction with strict cricket rules & schema validation
  */
 export function recordDelivery(matchState, deliveryInput) {
-  if (matchState.isMatchComplete) return matchState;
+  if (!matchState || matchState.isMatchComplete) return matchState;
 
-  const newState = JSON.parse(JSON.stringify(matchState));
+  // Input Sanitization & Schema Validation
+  const runsBat = Math.max(0, Math.min(6, Number(deliveryInput.runsBat) || 0));
+  const runsExtra = Math.max(0, Math.min(6, Number(deliveryInput.runsExtra) || 0));
+  const extraType = deliveryInput.extraType && Object.values(EXTRAS_TYPES).includes(deliveryInput.extraType)
+    ? deliveryInput.extraType
+    : EXTRAS_TYPES.NONE;
+  const wicketType = deliveryInput.wicketType && Object.values(DISMISSAL_TYPES).includes(deliveryInput.wicketType)
+    ? deliveryInput.wicketType
+    : DISMISSAL_TYPES.NONE;
+
+  // Strip history stack before deep cloning to prevent exponential nested stack memory leak
+  const { deliveryHistoryStack = [], ...stateToClone } = matchState;
+  const newState = JSON.parse(JSON.stringify(stateToClone));
+  newState.deliveryHistoryStack = [...deliveryHistoryStack];
+
   const innings = newState.innings[newState.currentInningsIndex];
   if (innings.isComplete) return matchState;
 
   let currentOver = innings.overs[innings.overs.length - 1];
   if (currentOver.isComplete) {
-    currentOver = createInitialOver(innings.overs.length + 1, deliveryInput.bowlerId);
+    currentOver = createInitialOver(innings.overs.length + 1, deliveryInput.bowlerId || newState.activeBowlerId);
     innings.overs.push(currentOver);
   }
 
-  const runsBat = deliveryInput.runsBat || 0;
-  const runsExtra = deliveryInput.runsExtra || 0;
-  const extraType = deliveryInput.extraType || 'NONE'; // WIDE, NO_BALL, BYE, LEG_BYE
-  const wicketType = deliveryInput.wicketType || 'NONE';
-  const dismissedPlayerId = deliveryInput.dismissedPlayerId || null;
-
-  const isWideOrNoBall = extraType === 'WIDE' || extraType === 'NO_BALL';
+  const isWideOrNoBall = extraType === EXTRAS_TYPES.WIDE || extraType === EXTRAS_TYPES.NO_BALL;
   const isLegalBall = !isWideOrNoBall;
 
-  const totalDeliveryRuns = runsBat + runsExtra + (isWideOrNoBall ? 1 : 0);
+  // Single 1-run penalty for WIDE or NO_BALL (runsExtra represents additional runs run by batters)
+  const extraPenalty = isWideOrNoBall ? 1 : 0;
+  const totalDeliveryRuns = runsBat + runsExtra + extraPenalty;
+
+  // Check Dismissal Legality (Bowled, Caught, LBW, Stumped illegal on No-Ball)
+  let validWicketType = wicketType;
+  if (extraType === EXTRAS_TYPES.NO_BALL && ['BOWLED', 'CAUGHT', 'LBW', 'STUMPED', 'HIT_WICKET'].includes(wicketType)) {
+    console.warn(`[MatchEngine] Dismissal ${wicketType} is illegal on a No-Ball.`);
+    validWicketType = DISMISSAL_TYPES.NONE;
+  }
+
+  const dismissedPlayerId = deliveryInput.dismissedPlayerId || newState.activeStrikerId;
+
+  // Prevent duplicate dismissals of players already out
+  if (validWicketType !== DISMISSAL_TYPES.NONE && validWicketType !== DISMISSAL_TYPES.RETIRED_HURT) {
+    if (newState.dismissedPlayerIds.includes(dismissedPlayerId)) {
+      validWicketType = DISMISSAL_TYPES.NONE;
+    }
+  }
 
   const deliveryRecord = {
     deliveryIndex: currentOver.deliveries.length + 1,
@@ -92,8 +140,8 @@ export function recordDelivery(matchState, deliveryInput) {
     runsBat,
     runsExtra,
     extraType,
-    wicketType,
-    dismissedPlayerId,
+    wicketType: validWicketType,
+    dismissedPlayerId: validWicketType !== DISMISSAL_TYPES.NONE ? dismissedPlayerId : null,
     strikerId: newState.activeStrikerId,
     nonStrikerId: newState.activeNonStrikerId,
     bowlerId: deliveryInput.bowlerId || newState.activeBowlerId,
@@ -104,14 +152,15 @@ export function recordDelivery(matchState, deliveryInput) {
   currentOver.runsInOver += totalDeliveryRuns;
   innings.totalRuns += totalDeliveryRuns;
 
-  if (extraType !== 'NONE') {
-    innings.totalExtras += runsExtra + (isWideOrNoBall ? 1 : 0);
+  if (extraType !== EXTRAS_TYPES.NONE) {
+    innings.totalExtras += runsExtra + extraPenalty;
   }
 
   // Wicket Processing
-  if (wicketType !== 'NONE') {
+  if (validWicketType !== DISMISSAL_TYPES.NONE && validWicketType !== DISMISSAL_TYPES.RETIRED_HURT) {
     currentOver.wicketsInOver += 1;
     innings.totalWickets += 1;
+    newState.dismissedPlayerIds.push(dismissedPlayerId);
   }
 
   // Legal Ball Count & Over Progress
@@ -122,7 +171,6 @@ export function recordDelivery(matchState, deliveryInput) {
       innings.oversBowled += 1;
       innings.ballsInCurrentOver = 0;
       
-      // Update Bowler Spell Tracker
       const bowlerId = deliveryInput.bowlerId || newState.activeBowlerId;
       if (bowlerId) {
         if (!newState.bowlerSpellTracker[bowlerId]) {
@@ -135,8 +183,7 @@ export function recordDelivery(matchState, deliveryInput) {
   }
 
   // Strike Rotation Logic
-  // Rotate on odd runs scored off bat/byes/leg-byes, OR end of over (unless both occur)
-  const runsForRotation = (extraType === 'BYE' || extraType === 'LEG_BYE') ? runsExtra : runsBat;
+  const runsForRotation = (extraType === EXTRAS_TYPES.BYE || extraType === EXTRAS_TYPES.LEG_BYE) ? runsExtra : runsBat;
   const isOddRuns = runsForRotation % 2 !== 0;
   const isOverEnd = currentOver.isComplete;
 
@@ -146,28 +193,46 @@ export function recordDelivery(matchState, deliveryInput) {
     newState.activeNonStrikerId = temp;
   }
 
-  // Check Innings Completion Driven by MatchDefinition
+  // Innings Chase & Completion Validation
+  const firstInnings = newState.innings[0];
   const maxOvers = newState.matchDef.maxOversPerInnings;
-  const rules = newState.matchDef.inningsCompletionRules;
 
-  if (rules === 'TEN_WICKETS_OR_MAX_OVERS') {
+  if (newState.currentInningsIndex === 1) {
+    const targetRuns = firstInnings.totalRuns + 1;
+    if (innings.totalRuns >= targetRuns) {
+      innings.isComplete = true;
+      innings.completionReason = 'TARGET_ACHIEVED';
+      newState.isMatchComplete = true;
+      const wicketsRemaining = 10 - innings.totalWickets;
+      newState.matchResultSummary = `Chasing Team won by ${wicketsRemaining} wicket${wicketsRemaining === 1 ? '' : 's'}`;
+    }
+  }
+
+  if (!innings.isComplete) {
     if (innings.totalWickets >= 10 || innings.oversBowled >= maxOvers) {
       innings.isComplete = true;
       innings.completionReason = innings.totalWickets >= 10 ? 'ALL_OUT' : 'OVERS_EXPIRED';
+
       if (newState.currentInningsIndex === 0) {
-        // Prepare 2nd Innings
+        // Switch to 2nd Innings
         newState.currentInningsIndex = 1;
         newState.innings.push(createInitialInnings(2, innings.bowlingTeamId, innings.battingTeamId));
       } else {
         newState.isMatchComplete = true;
-        newState.matchResultSummary = 'Match Completed';
+        if (innings.totalRuns > firstInnings.totalRuns) {
+          const wicketsRemaining = 10 - innings.totalWickets;
+          newState.matchResultSummary = `Team 2 won by ${wicketsRemaining} wickets`;
+        } else if (firstInnings.totalRuns > innings.totalRuns) {
+          const runsMargin = firstInnings.totalRuns - innings.totalRuns;
+          newState.matchResultSummary = `Team 1 won by ${runsMargin} runs`;
+        } else {
+          newState.matchResultSummary = 'Match Tied';
+        }
       }
     }
   }
 
-  // Save to history stack for undo capability
-  newState.deliveryHistoryStack.push(matchState);
-
+  newState.deliveryHistoryStack.push(stateToClone);
   return newState;
 }
 
@@ -175,8 +240,13 @@ export function recordDelivery(matchState, deliveryInput) {
  * Reverts match state to previous delivery
  */
 export function undoLastDelivery(matchState) {
-  if (matchState.deliveryHistoryStack && matchState.deliveryHistoryStack.length > 0) {
-    return matchState.deliveryHistoryStack[matchState.deliveryHistoryStack.length - 1];
+  if (matchState && matchState.deliveryHistoryStack && matchState.deliveryHistoryStack.length > 0) {
+    const previousState = matchState.deliveryHistoryStack[matchState.deliveryHistoryStack.length - 1];
+    const newStack = matchState.deliveryHistoryStack.slice(0, -1);
+    return {
+      ...previousState,
+      deliveryHistoryStack: newStack
+    };
   }
   return matchState;
 }
@@ -186,7 +256,8 @@ export function undoLastDelivery(matchState) {
  */
 export function calculatePlayerStats(matchState) {
   const stats = { batting: {}, bowling: {} };
-  
+  if (!matchState || !matchState.innings) return stats;
+
   matchState.innings.forEach(innings => {
     innings.overs.forEach(over => {
       over.deliveries.forEach(del => {
@@ -195,7 +266,7 @@ export function calculatePlayerStats(matchState) {
           if (!stats.batting[del.strikerId]) {
             stats.batting[del.strikerId] = { runs: 0, balls: 0, fours: 0, sixes: 0, isOut: false };
           }
-          if (del.isLegalBall || del.extraType === 'NO_BALL') {
+          if (del.isLegalBall || del.extraType === EXTRAS_TYPES.NO_BALL) {
             stats.batting[del.strikerId].balls += 1;
           }
           stats.batting[del.strikerId].runs += del.runsBat;
@@ -203,7 +274,7 @@ export function calculatePlayerStats(matchState) {
           if (del.runsBat === 6) stats.batting[del.strikerId].sixes += 1;
         }
 
-        if (del.wicketType !== 'NONE' && del.dismissedPlayerId) {
+        if (del.wicketType !== DISMISSAL_TYPES.NONE && del.dismissedPlayerId) {
           if (!stats.batting[del.dismissedPlayerId]) {
             stats.batting[del.dismissedPlayerId] = { runs: 0, balls: 0, fours: 0, sixes: 0, isOut: false };
           }
@@ -213,13 +284,22 @@ export function calculatePlayerStats(matchState) {
         // Bowling stats
         if (del.bowlerId) {
           if (!stats.bowling[del.bowlerId]) {
-            stats.bowling[del.bowlerId] = { overs: 0, runs: 0, wickets: 0, legalBalls: 0 };
+            stats.bowling[del.bowlerId] = { overs: '0.0', runs: 0, wickets: 0, legalBalls: 0 };
           }
           if (del.isLegalBall) stats.bowling[del.bowlerId].legalBalls += 1;
-          stats.bowling[del.bowlerId].runs += del.totalDeliveryRuns;
-          if (del.wicketType !== 'NONE' && del.wicketType !== 'RUN_OUT') {
+
+          // Cricket rule: Byes and Leg-Byes are NOT charged to the bowler!
+          const isByeOrLegBye = del.extraType === EXTRAS_TYPES.BYE || del.extraType === EXTRAS_TYPES.LEG_BYE;
+          if (!isByeOrLegBye) {
+            stats.bowling[del.bowlerId].runs += del.totalDeliveryRuns;
+          }
+
+          if (del.wicketType !== DISMISSAL_TYPES.NONE && del.wicketType !== DISMISSAL_TYPES.RUN_OUT && del.wicketType !== DISMISSAL_TYPES.RETIRED_HURT) {
             stats.bowling[del.bowlerId].wickets += 1;
           }
+
+          const bCount = stats.bowling[del.bowlerId].legalBalls;
+          stats.bowling[del.bowlerId].overs = `${Math.floor(bCount / 6)}.${bCount % 6}`;
         }
       });
     });
