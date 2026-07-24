@@ -5,7 +5,7 @@ import { BASE_MATCH_DEFINITIONS } from '../config/matchDefinitions';
 import { SAFETY_FRAMEWORK } from '../config/safety';
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { searchActivities } from '../data/retrievalIndex';
-import { generateTrainingPlan } from '../engine/deterministicPlanner';
+import { generateTrainingPlan, REJECTION_CODES } from '../engine/deterministicPlanner';
 import { createInitialMatchState, recordDelivery, undoLastDelivery, calculatePlayerStats } from '../engine/cricketMatchEngine';
 import { processUploadedRuleDocument, getEffectiveMatchDefinition } from '../services/competitionRulesEngine';
 import { processVideoImport } from '../services/videoImportPipeline';
@@ -245,11 +245,7 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(results[0].contributingFocus).toBeDefined();
   });
 
-  // ==========================================
-  // REGRESSION TESTS A - G (Requirement 8)
-  // ==========================================
-
-  // A. 90-minute session cannot generate only a Warm-Up
+  // REGRESSION TESTS A - G
   it('28. (A) 90-minute session cannot generate only a Warm-Up', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -263,7 +259,6 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(warmUpsOnly).toBe(false);
   });
 
-  // B. No activity may exceed its maximumDuration
   it('29. (B) No activity may exceed its maximumDuration', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -277,9 +272,7 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     });
   });
 
-  // C. Missing required template blocks causes generation failure
   it('30. (C) Insufficient activity options for required blocks causes generation failure', () => {
-    // Pass impossible cohort criteria that has no matching Warm-up activities
     const res = generateTrainingPlan({
       requestedDuration: 90,
       cohortId: 'IMPOSSIBLE_COHORT_ID',
@@ -287,10 +280,9 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
       participantCount: 10
     });
     expect(res.success).toBe(false);
-    expect(res.errorReason).toContain('Unable to generate a valid 90-minute session');
+    expect(res.userMessage).toContain('Unable to generate');
   });
 
-  // D. A valid 90-minute session contains the complete required template structure
   it('31. (D) Valid 90-minute session contains complete required template structure', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -299,10 +291,9 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
       participantCount: 10
     });
     expect(res.success).toBe(true);
-    expect(res.plan.blocks.length).toBe(4); // Warm-up, Technical Skill Stations, Game-Based Scenario, Warm-down
+    expect(res.plan.blocks.length).toBe(4);
   });
 
-  // E. Concurrent station durations are calculated using elapsed time rather than summed activity time
   it('32. (E) Concurrent station durations use shared elapsed time instead of summed activity time', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -317,7 +308,6 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(stationBlock.blockDuration).toBeLessThan(sumStationDurations);
   });
 
-  // F. Useful failure response when insufficient eligible activities exist
   it('33. (F) Useful failure message returned when insufficient eligible activities exist', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -325,10 +315,9 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
       selectedFocusIds: ['Batting']
     });
     expect(res.success).toBe(false);
-    expect(typeof res.errorReason).toBe('string');
+    expect(typeof res.userMessage).toBe('string');
   });
 
-  // G. Replacement/variation cannot remove a required session block
   it('34. (G) Replacement/variation preserves template block structure', () => {
     const res = generateTrainingPlan({
       requestedDuration: 90,
@@ -337,10 +326,93 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     });
     expect(res.success).toBe(true);
     const initialBlockCount = res.plan.blocks.length;
-    // Replace activity in block 1
     const drillToReplace = res.plan.activities[0];
     expect(drillToReplace.phaseName).toBeDefined();
     expect(initialBlockCount).toBe(4);
+  });
+
+  // ==========================================
+  // STRUCTURED DIAGNOSTICS TESTS (Requirement 10)
+  // ==========================================
+
+  // 35. Venue-caused failure identifies venue
+  it('35. Structured diagnostics identifies venue-caused failure specifically', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Match Simulation'],
+      venueId: 'INDOOR_FACILITY',
+      participantCount: 10
+    });
+    expect(res.success).toBe(false);
+    expect(res.failedBlocks.length).toBeGreaterThan(0);
+    const hasVenueReason = res.primaryReasons.some(r => r.includes('venue') || r.includes('INDOOR_FACILITY'));
+    expect(hasVenueReason).toBe(true);
+  });
+
+  // 36. Focus coverage analysis reports eligible vs ineligible focuses
+  it('36. Focus coverage analysis reports eligible vs ineligible focuses', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Batting', 'Match Simulation'],
+      venueId: 'INDOOR_FACILITY',
+      participantCount: 10
+    });
+    expect(res.success).toBe(false);
+    const battingFocus = res.focusCoverage.find(f => f.focusId === 'Batting');
+    const msFocus = res.focusCoverage.find(f => f.focusId === 'Match Simulation');
+    expect(battingFocus.isEligible).toBe(true);
+    expect(msFocus.isEligible).toBe(false);
+  });
+
+  // 37. Insufficient participant count reports capacity constraint
+  it('37. Participant capacity rejection reports participant count specifically', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Batting'],
+      participantCount: 1
+    });
+    expect(res.success).toBe(false);
+    const hasPartRejection = res.technicalDetails.some(td => td.code === REJECTION_CODES.TOO_FEW_PARTICIPANTS);
+    expect(hasPartRejection).toBe(true);
+  });
+
+  // 38. Actionable suggestions correspond to actual constraints without AI
+  it('38. Generates deterministic suggestions proven to resolve constraints', () => {
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Match Simulation'],
+      venueId: 'INDOOR_FACILITY',
+      participantCount: 10
+    });
+    expect(res.success).toBe(false);
+    expect(res.suggestedChanges.length).toBeGreaterThan(0);
+    const venueSuggestion = res.suggestedChanges.find(s => s.type === 'CHANGE_VENUE');
+    expect(venueSuggestion).toBeDefined();
+    expect(venueSuggestion.targetVenue).toBe('FULL_OVAL');
+  });
+
+  // 39. Local competition rule rejection identifies active ruleset
+  it('39. Local ruleset restriction identifies active ruleset in primary reasons', () => {
+    const mockRuleset = {
+      name: 'Junior_ByLaws_2026',
+      conflicts: [
+        { targetActivityId: 'MS-001', description: 'Match sim blocked in U13' },
+        { targetActivityId: 'GF-001', description: 'Ground fielding blocked in U13' }
+      ]
+    };
+    const res = generateTrainingPlan({
+      requestedDuration: 90,
+      cohortId: 'U13_JUNIOR',
+      selectedFocusIds: ['Match Simulation', 'Ground Fielding'],
+      activeRuleset: mockRuleset
+    });
+    expect(res.success).toBe(false);
+    const hasRulesetReason = res.primaryReasons.some(r => r.includes('Junior_ByLaws_2026'));
+    expect(hasRulesetReason).toBe(true);
   });
 
 });

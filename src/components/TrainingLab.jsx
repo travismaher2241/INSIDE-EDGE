@@ -29,10 +29,12 @@ export default function TrainingLab({
   const [selectedFocusIds, setSelectedFocusIds] = useState(['Batting', 'Ground Fielding']);
   const [focusToAdd, setFocusToAdd] = useState('');
 
-  // Generated Plan & Validation Error State
+  // Generated Plan & Structured Failure Object State
   const [activePlan, setActivePlan] = useState(null);
   const [generatedDrills, setGeneratedDrills] = useState([]);
-  const [generationError, setGenerationError] = useState(null);
+  const [failureDiagnostics, setFailureDiagnostics] = useState(null);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+
   const [isAiEnhanced, setIsAiEnhanced] = useState(false);
   const [sessionHistory, setSessionHistory] = useState([]);
 
@@ -76,7 +78,7 @@ export default function TrainingLab({
 
   // Step 3: Run Authoritative Deterministic Planner Engine
   const handleGeneratePlan = () => {
-    setGenerationError(null);
+    setFailureDiagnostics(null);
 
     const result = generateTrainingPlan({
       requestedDuration: duration,
@@ -84,17 +86,30 @@ export default function TrainingLab({
       selectedFocusIds,
       coachLevelId: selectedCoachLevel,
       venueId: selectedVenue,
-      participantCount: presentPlayerIds.length
+      participantCount: presentPlayerIds.length,
+      activeRuleset
     });
 
     if (!result.success) {
-      setGenerationError(result.errorReason);
-      return;
+      setFailureDiagnostics(result);
+      return; // Keep coach on Parameters screen
     }
 
     setActivePlan(result.plan);
     setGeneratedDrills(result.plan.activities);
     setStep('review');
+  };
+
+  // Apply Actionable Suggestion Click
+  const handleApplySuggestion = (suggestion) => {
+    if (suggestion.type === 'CHANGE_VENUE' && suggestion.targetVenue) {
+      setSelectedVenue(suggestion.targetVenue);
+    } else if (suggestion.type === 'REMOVE_FOCUS' && suggestion.targetFocus) {
+      setSelectedFocusIds(prev => prev.filter(f => f !== suggestion.targetFocus));
+    } else if (suggestion.type === 'CHANGE_DURATION' && suggestion.targetDuration) {
+      setDuration(suggestion.targetDuration);
+    }
+    setFailureDiagnostics(null);
   };
 
   // Step 5: Replace Drill preserving multi-focus intent and template structure
@@ -201,13 +216,84 @@ export default function TrainingLab({
             </p>
           </div>
 
-          {/* Validation Failure Error Banner */}
-          {generationError && (
-            <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '12px', color: '#ef4444', fontSize: '0.85rem' }}>
-              <div style={{ fontWeight: '700', fontSize: '0.95rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>⚠️</span> Generation Failure
+          {/* Structured Failure Diagnostics Display */}
+          {failureDiagnostics && (
+            <div style={{ padding: '20px', backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
+                <span style={{ fontSize: '1.3rem' }}>⚠️</span>
+                <h3 className="scoreboard-font" style={{ margin: 0, fontSize: '1.2rem', color: '#ef4444' }}>
+                  GENERATION FAILED
+                </h3>
               </div>
-              {generationError}
+
+              {/* Specific Primary Reasons */}
+              <div>
+                <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>Why:</strong>
+                <ul style={{ margin: '6px 0 0 0', paddingLeft: '20px', fontSize: '0.85rem', color: '#ef4444', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {failureDiagnostics.primaryReasons.map((reason, idx) => (
+                    <li key={idx}>• {reason}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Selected Focus Coverage */}
+              {failureDiagnostics.focusCoverage && failureDiagnostics.focusCoverage.length > 0 && (
+                <div style={{ borderTop: '1px solid rgba(239,68,68,0.2)', paddingTop: '10px' }}>
+                  <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>Selected focus coverage:</strong>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px', fontSize: '0.85rem' }}>
+                    {failureDiagnostics.focusCoverage.map(fc => (
+                      <div key={fc.focusId} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>{fc.isEligible ? '✓' : '⚠'}</span>
+                        <span style={{ fontWeight: '600', color: fc.isEligible ? '#10b981' : '#f59e0b' }}>
+                          {fc.focusId}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          — {fc.isEligible ? `eligible (${fc.eligibleCount} activities)` : (fc.rejectionReason || 'no eligible activities for selected parameters')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Contextual Actionable Suggestions */}
+              {failureDiagnostics.suggestedChanges && failureDiagnostics.suggestedChanges.length > 0 && (
+                <div style={{ borderTop: '1px solid rgba(239,68,68,0.2)', paddingTop: '10px' }}>
+                  <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>Try:</strong>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
+                    {failureDiagnostics.suggestedChanges.map((sug, idx) => (
+                      <button 
+                        key={idx}
+                        className="btn btn-secondary"
+                        onClick={() => handleApplySuggestion(sug)}
+                        style={{ fontSize: '0.8rem', padding: '6px 12px', border: '1px solid var(--color-training)', color: 'var(--color-training)' }}
+                      >
+                        💡 {sug.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Technical Details Expandable */}
+              <div style={{ borderTop: '1px solid rgba(239,68,68,0.2)', paddingTop: '8px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.75rem', padding: 0 }}
+                >
+                  {showTechnicalDetails ? '▼ Hide Technical Details' : '▶ Technical Details (Developer/Tester Mode)'}
+                </button>
+
+                {showTechnicalDetails && (
+                  <div style={{ marginTop: '8px', backgroundColor: 'var(--bg-floor)', padding: '10px', borderRadius: '6px', fontSize: '0.75rem', maxHeight: '120px', overflowY: 'auto' }}>
+                    <div style={{ fontWeight: '600', marginBottom: '4px' }}>Rejection Summary:</div>
+                    {failureDiagnostics.rejectionSummary.map(rs => (
+                      <div key={rs.code}>• <code>{rs.code}</code>: {rs.count} candidate rejections ({rs.sampleReason})</div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

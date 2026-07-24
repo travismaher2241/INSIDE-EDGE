@@ -1,11 +1,34 @@
 import { SESSION_TEMPLATES } from '../config/sessionTemplates';
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
+import { VENUE_MODELS } from '../config/venues';
+
+/**
+ * Diagnostic Rejection Codes Taxonomy
+ */
+export const REJECTION_CODES = {
+  COHORT_NOT_ELIGIBLE: 'COHORT_NOT_ELIGIBLE',
+  COACH_LEVEL_TOO_LOW: 'COACH_LEVEL_TOO_LOW',
+  TOO_FEW_PARTICIPANTS: 'TOO_FEW_PARTICIPANTS',
+  TOO_MANY_PARTICIPANTS: 'TOO_MANY_PARTICIPANTS',
+  VENUE_NOT_SUPPORTED: 'VENUE_NOT_SUPPORTED',
+  NETS_REQUIRED: 'NETS_REQUIRED',
+  OPEN_SPACE_REQUIRED: 'OPEN_SPACE_REQUIRED',
+  EQUIPMENT_MISSING: 'EQUIPMENT_MISSING',
+  SAFETY_RULE_BLOCK: 'SAFETY_RULE_BLOCK',
+  SESSION_SLOT_NOT_ALLOWED: 'SESSION_SLOT_NOT_ALLOWED',
+  FOCUS_NOT_COVERED: 'FOCUS_NOT_COVERED',
+  DURATION_TOO_SHORT: 'DURATION_TOO_SHORT',
+  DURATION_TOO_LONG: 'DURATION_TOO_LONG',
+  NO_ACTIVITY_FOR_REQUIRED_BLOCK: 'NO_ACTIVITY_FOR_REQUIRED_BLOCK',
+  NO_VALID_REPLACEMENT: 'NO_VALID_REPLACEMENT',
+  TEMPLATE_CANNOT_FIT_DURATION: 'TEMPLATE_CANNOT_FIT_DURATION',
+  LOCAL_RULESET_RESTRICTION: 'LOCAL_RULESET_RESTRICTION',
+  UNKNOWN_OR_UNRESOLVED_RULE: 'UNKNOWN_OR_UNRESOLVED_RULE'
+};
 
 /**
  * Authoritative Deterministic Training Planner Engine
- * Enforces session template structure, bounded block & activity durations,
- * template-based elapsed time (including concurrent stations), required block validation,
- * and controlled failure reporting.
+ * Includes Structured Diagnostics, Focus Coverage Analysis, and Actionable Suggestions.
  */
 export function generateTrainingPlan({
   requestedDuration = 90,
@@ -14,42 +37,51 @@ export function generateTrainingPlan({
   coachLevelId = 'DEVELOPMENT_LEVEL_1',
   venueId = 'NET_LANES_TURF',
   equipmentAvailable = [],
-  participantCount = 10
+  participantCount = 10,
+  activeRuleset = null
 }) {
-  // 1. Select Authoritative Session Template based on duration
   const template = requestedDuration <= 65 
     ? SESSION_TEMPLATES.EXPRESS_60_MIN 
     : SESSION_TEMPLATES.STANDARD_90_MIN;
 
-  const validationErrors = [];
+  const failedBlocks = [];
   const populatedBlocks = [];
   const usedActivityIds = new Set();
+  const allRejections = [];
 
-  // 2. Build Required Template Structure
   for (const blockDef of template.requiredBlocks) {
     if (blockDef.type === 'CONCURRENT_STATIONS') {
       const stationsCount = blockDef.stationsCount || 2;
       const stations = [];
 
       for (let sIdx = 0; sIdx < stationsCount; sIdx++) {
-        const candidate = findEligibleActivityForSlot({
+        const { candidate, rejections } = evaluateCandidatesForSlot({
           slotType: blockDef.slotType,
           cohortId,
           selectedFocusIds,
           coachLevelId,
           venueId,
+          equipmentAvailable,
           participantCount,
-          usedActivityIds
+          usedActivityIds,
+          activeRuleset
         });
 
+        allRejections.push(...rejections);
+
         if (!candidate) {
-          validationErrors.push(`Missing eligible activity for Station ${sIdx + 1} in '${blockDef.phaseName}' (${blockDef.slotType}).`);
+          failedBlocks.push({
+            blockId: blockDef.blockId,
+            phaseName: blockDef.phaseName,
+            slotType: blockDef.slotType,
+            stationNumber: sIdx + 1,
+            reason: `No eligible activity found for station ${sIdx + 1} (${blockDef.slotType})`
+          });
           break;
         }
 
         usedActivityIds.add(candidate.id);
 
-        // Clamp duration strictly within activity.durationRange [min, max] and block bounds
         const targetDuration = Math.min(blockDef.idealDuration, candidate.durationRange.max);
         const assignedDuration = Math.max(candidate.durationRange.min, Math.min(candidate.durationRange.max, targetDuration));
 
@@ -62,11 +94,9 @@ export function generateTrainingPlan({
       }
 
       if (stations.length < stationsCount) {
-        // Required station activity missing
         continue;
       }
 
-      // Elapsed time for concurrent stations is the shared station duration (max of stations)
       const sharedStationDuration = Math.max(...stations.map(s => s.assignedDuration));
 
       populatedBlocks.push({
@@ -79,25 +109,32 @@ export function generateTrainingPlan({
       });
 
     } else {
-      // SERIAL or MATCH_SIM block
-      const candidate = findEligibleActivityForSlot({
+      const { candidate, rejections } = evaluateCandidatesForSlot({
         slotType: blockDef.slotType,
         cohortId,
         selectedFocusIds,
         coachLevelId,
         venueId,
+        equipmentAvailable,
         participantCount,
-        usedActivityIds
+        usedActivityIds,
+        activeRuleset
       });
 
+      allRejections.push(...rejections);
+
       if (!candidate) {
-        validationErrors.push(`Missing eligible activity for required block '${blockDef.phaseName}' (${blockDef.slotType}).`);
+        failedBlocks.push({
+          blockId: blockDef.blockId,
+          phaseName: blockDef.phaseName,
+          slotType: blockDef.slotType,
+          reason: `Required block '${blockDef.phaseName}' (${blockDef.slotType}) could not be populated`
+        });
         continue;
       }
 
       usedActivityIds.add(candidate.id);
 
-      // Clamp duration strictly within activity.durationRange [min, max]
       const targetDuration = Math.min(blockDef.idealDuration, candidate.durationRange.max);
       const assignedDuration = Math.max(candidate.durationRange.min, Math.min(candidate.durationRange.max, targetDuration));
 
@@ -116,23 +153,57 @@ export function generateTrainingPlan({
     }
   }
 
-  // 3. Final Plan Structure Validation
-  const validationResult = validatePlanStructure({
-    template,
-    populatedBlocks,
-    requestedDuration,
-    validationErrors
+  const focusCoverage = analyzeFocusCoverage({
+    selectedFocusIds,
+    cohortId,
+    coachLevelId,
+    venueId,
+    equipmentAvailable,
+    participantCount,
+    activeRuleset
   });
 
-  if (!validationResult.isValid) {
+  const isComplete = populatedBlocks.length === template.requiredBlocks.length;
+
+  if (!isComplete || failedBlocks.length > 0) {
+    const rejectionSummary = summarizeRejections(allRejections);
+    const primaryReasons = buildPrimaryReasons({
+      failedBlocks,
+      focusCoverage,
+      venueId,
+      participantCount,
+      cohortId,
+      requestedDuration,
+      template,
+      rejectionSummary,
+      activeRuleset
+    });
+
+    const suggestions = generateActionableSuggestions({
+      venueId,
+      selectedFocusIds,
+      focusCoverage,
+      participantCount,
+      cohortId,
+      coachLevelId,
+      requestedDuration,
+      rejectionSummary,
+      activeRuleset
+    });
+
     return {
       success: false,
-      errorReason: `Unable to generate a valid ${requestedDuration}-minute session from the current attendance, focus areas, equipment, venue and activity eligibility. Try changing the session parameters or adding more eligible activities.`,
-      details: validationResult.errors
+      requestedDuration,
+      failedBlocks,
+      focusCoverage,
+      rejectionSummary,
+      primaryReasons,
+      suggestedChanges: suggestions,
+      userMessage: `Unable to generate a valid ${requestedDuration}-minute session plan due to parameter constraints.`,
+      technicalDetails: allRejections
     };
   }
 
-  // Flatten activities for UI rendering while retaining block structure metadata
   const flatActivities = [];
   populatedBlocks.forEach(b => {
     if (b.type === 'CONCURRENT_STATIONS') {
@@ -154,36 +225,41 @@ export function generateTrainingPlan({
     }
   });
 
+  let totalElapsedTime = 0;
+  populatedBlocks.forEach(b => totalElapsedTime += b.blockDuration);
+
   return {
     success: true,
     plan: {
       templateId: template.id,
       templateName: template.name,
       requestedDuration,
-      totalElapsedTime: validationResult.totalElapsedTime,
+      totalElapsedTime,
       blocks: populatedBlocks,
       activities: flatActivities
     }
   };
 }
 
-/**
- * Finds the best eligible activity for a specific template session slot.
- */
-function findEligibleActivityForSlot({
+function evaluateCandidatesForSlot({
   slotType,
   cohortId,
   selectedFocusIds = [],
   coachLevelId,
   venueId,
+  equipmentAvailable = [],
   participantCount,
-  usedActivityIds
+  usedActivityIds,
+  activeRuleset
 }) {
-  const eligible = STRUCTURED_ACTIVITIES.filter(act => {
-    // 1. Exclude already used activities in current plan
-    if (usedActivityIds.has(act.id)) return false;
+  const rejections = [];
+  const eligible = [];
 
-    // 2. Check permitted session slots
+  STRUCTURED_ACTIVITIES.forEach(act => {
+    if (usedActivityIds.has(act.id)) {
+      return;
+    }
+
     const isSlotMatch = act.permittedSessionSlots.some(slot => {
       const sLower = slot.toLowerCase();
       const targetLower = slotType.toLowerCase();
@@ -194,20 +270,93 @@ function findEligibleActivityForSlot({
       return false;
     });
 
-    if (!isSlotMatch) return false;
+    if (!isSlotMatch) {
+      rejections.push({
+        activityId: act.id,
+        activityTitle: act.title,
+        code: REJECTION_CODES.SESSION_SLOT_NOT_ALLOWED,
+        reason: `Activity slot '${act.permittedSessionSlots.join(', ')}' does not permit '${slotType}'`
+      });
+      return;
+    }
 
-    // 3. Cohort suitability check
-    if (cohortId && !act.cohortSuitability.includes(cohortId)) return false;
+    if (cohortId && !act.cohortSuitability.includes(cohortId)) {
+      rejections.push({
+        activityId: act.id,
+        activityTitle: act.title,
+        code: REJECTION_CODES.COHORT_NOT_ELIGIBLE,
+        reason: `Activity is not suitable for cohort '${cohortId}'`
+      });
+      return;
+    }
 
-    // 4. Participant capacity check
-    if (participantCount && (act.minParticipants > participantCount || act.maxParticipants < participantCount)) return false;
+    if (participantCount < act.minParticipants) {
+      rejections.push({
+        activityId: act.id,
+        activityTitle: act.title,
+        code: REJECTION_CODES.TOO_FEW_PARTICIPANTS,
+        reason: `Requires min ${act.minParticipants} participants, but only ${participantCount} checked in`
+      });
+      return;
+    }
+    if (participantCount > act.maxParticipants) {
+      rejections.push({
+        activityId: act.id,
+        activityTitle: act.title,
+        code: REJECTION_CODES.TOO_MANY_PARTICIPANTS,
+        reason: `Exceeds max ${act.maxParticipants} participants for current group size (${participantCount})`
+      });
+      return;
+    }
 
-    return true;
+    if (venueId && act.venueRequirements && act.venueRequirements.length > 0) {
+      if (!act.venueRequirements.includes(venueId)) {
+        const isNetReq = act.venueRequirements.some(v => v.includes('NET'));
+        const isOvalReq = act.venueRequirements.some(v => v.includes('OVAL'));
+        const code = isNetReq ? REJECTION_CODES.NETS_REQUIRED : (isOvalReq ? REJECTION_CODES.OPEN_SPACE_REQUIRED : REJECTION_CODES.VENUE_NOT_SUPPORTED);
+        rejections.push({
+          activityId: act.id,
+          activityTitle: act.title,
+          code,
+          reason: `Requires venue '${act.venueRequirements.join('/')}', but selected venue is '${venueId}'`
+        });
+        return;
+      }
+    }
+
+    if (equipmentAvailable.length > 0 && act.equipmentRequirements) {
+      const missing = act.equipmentRequirements.filter(eq => !equipmentAvailable.includes(eq));
+      if (missing.length > 0) {
+        rejections.push({
+          activityId: act.id,
+          activityTitle: act.title,
+          code: REJECTION_CODES.EQUIPMENT_MISSING,
+          reason: `Missing required equipment: ${missing.join(', ')}`
+        });
+        return;
+      }
+    }
+
+    if (activeRuleset && activeRuleset.conflicts) {
+      const conflict = activeRuleset.conflicts.find(c => c.targetActivityId === act.id);
+      if (conflict) {
+        rejections.push({
+          activityId: act.id,
+          activityTitle: act.title,
+          code: REJECTION_CODES.LOCAL_RULESET_RESTRICTION,
+          reason: `Restricted by active ruleset '${activeRuleset.name}'`
+        });
+        return;
+      }
+    }
+
+    eligible.push(act);
   });
 
-  if (eligible.length === 0) return null;
+  if (eligible.length === 0) {
+    return { candidate: null, rejections };
+  }
 
-  // Score candidates by focus match priority
   const scored = eligible.map(act => {
     let score = 0;
     let contributingFocus = null;
@@ -215,7 +364,7 @@ function findEligibleActivityForSlot({
     if (selectedFocusIds && selectedFocusIds.length > 0) {
       selectedFocusIds.forEach((fId, idx) => {
         const fLower = fId.toLowerCase();
-        const weight = selectedFocusIds.length - idx; // Higher weight for first selected focus
+        const weight = selectedFocusIds.length - idx;
 
         if (act.activityCategory.toLowerCase().includes(fLower)) {
           score += 5 * weight;
@@ -240,51 +389,155 @@ function findEligibleActivityForSlot({
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return scored[0];
+  return { candidate: scored[0], rejections };
 }
 
-/**
- * Strict Plan Structure Validator
- */
-function validatePlanStructure({
-  template,
-  populatedBlocks,
-  requestedDuration,
-  validationErrors = []
+function analyzeFocusCoverage({
+  selectedFocusIds = [],
+  cohortId,
+  coachLevelId,
+  venueId,
+  equipmentAvailable = [],
+  participantCount,
+  activeRuleset
 }) {
-  const errors = [...validationErrors];
+  return selectedFocusIds.map(focusId => {
+    const matchingActs = STRUCTURED_ACTIVITIES.filter(act => {
+      const fLower = focusId.toLowerCase();
+      return act.activityCategory.toLowerCase().includes(fLower) ||
+             act.primarySkills.some(s => s.toLowerCase().includes(fLower)) ||
+             act.tacticalConcepts.some(t => t.toLowerCase().includes(fLower));
+    });
 
-  // Rule A: Every required block in the template must be populated
-  if (populatedBlocks.length < template.requiredBlocks.length) {
-    errors.push(`Template required ${template.requiredBlocks.length} blocks, but only ${populatedBlocks.length} could be populated.`);
-  }
+    const eligibleMatching = matchingActs.filter(act => {
+      if (cohortId && !act.cohortSuitability.includes(cohortId)) return false;
+      if (participantCount < act.minParticipants || participantCount > act.maxParticipants) return false;
+      if (venueId && act.venueRequirements && act.venueRequirements.length > 0 && !act.venueRequirements.includes(venueId)) return false;
+      return true;
+    });
 
-  // Rule B: Calculate total elapsed session duration from block structure
-  let totalElapsedTime = 0;
-  populatedBlocks.forEach(b => {
-    totalElapsedTime += b.blockDuration;
+    let primaryRejection = null;
+    let rejectionReason = null;
+
+    if (eligibleMatching.length === 0 && matchingActs.length > 0) {
+      const sample = matchingActs[0];
+      if (venueId && sample.venueRequirements && !sample.venueRequirements.includes(venueId)) {
+        primaryRejection = REJECTION_CODES.VENUE_NOT_SUPPORTED;
+        rejectionReason = `No eligible activities for selected venue (${venueId})`;
+      } else if (participantCount < sample.minParticipants || participantCount > sample.maxParticipants) {
+        primaryRejection = REJECTION_CODES.TOO_FEW_PARTICIPANTS;
+        rejectionReason = `Participant count (${participantCount}) outside activity bounds (${sample.minParticipants}-${sample.maxParticipants})`;
+      } else {
+        primaryRejection = REJECTION_CODES.COHORT_NOT_ELIGIBLE;
+        rejectionReason = `No eligible activities for cohort ${cohortId}`;
+      }
+    }
+
+    return {
+      focusId,
+      totalCount: matchingActs.length,
+      eligibleCount: eligibleMatching.length,
+      isEligible: eligibleMatching.length > 0,
+      primaryRejection,
+      rejectionReason
+    };
+  });
+}
+
+function summarizeRejections(rejections) {
+  const summary = {};
+  rejections.forEach(r => {
+    if (!summary[r.code]) {
+      summary[r.code] = { code: r.code, count: 0, sampleReason: r.reason };
+    }
+    summary[r.code].count += 1;
+  });
+  return Object.values(summary);
+}
+
+function buildPrimaryReasons({
+  failedBlocks,
+  focusCoverage,
+  venueId,
+  participantCount,
+  cohortId,
+  requestedDuration,
+  template,
+  rejectionSummary,
+  activeRuleset
+}) {
+  const reasons = [];
+
+  failedBlocks.forEach(fb => {
+    reasons.push(`${fb.phaseName} block (${fb.slotType}) could not be populated.`);
   });
 
-  // Rule C: Validate no activity exceeds its explicit maximumDuration
-  populatedBlocks.forEach(b => {
-    const activitiesInBlock = b.type === 'CONCURRENT_STATIONS' ? b.stations : [b.activity];
-    activitiesInBlock.forEach(act => {
-      if (!act) {
-        errors.push(`Block '${b.phaseName}' contains an invalid/null activity.`);
-        return;
-      }
-      if (act.assignedDuration > act.durationRange.max) {
-        errors.push(`Activity '${act.id}' duration (${act.assignedDuration}m) exceeds max allowed (${act.durationRange.max}m).`);
-      }
-      if (act.assignedDuration < act.durationRange.min) {
-        errors.push(`Activity '${act.id}' duration (${act.assignedDuration}m) is below min allowed (${act.durationRange.min}m).`);
-      }
+  focusCoverage.filter(f => !f.isEligible).forEach(f => {
+    reasons.push(`No eligible '${f.focusId}' activities are available for venue ${venueId}.`);
+  });
+
+  if (activeRuleset) {
+    reasons.push(`Active local ruleset '${activeRuleset.name}' restricted candidate activities.`);
+  }
+
+  if (reasons.length === 0) {
+    const venueRej = rejectionSummary.find(s => 
+      s.code === REJECTION_CODES.VENUE_NOT_SUPPORTED || 
+      s.code === REJECTION_CODES.OPEN_SPACE_REQUIRED ||
+      s.code === REJECTION_CODES.NETS_REQUIRED
+    );
+    if (venueRej) {
+      reasons.push(`Selected venue '${venueId}' restricts required open-space / game-based activities.`);
+    } else {
+      reasons.push(`Insufficient eligible activities matching your selected attendance (${participantCount}), cohort (${cohortId}), and venue (${venueId}).`);
+    }
+  }
+
+  return reasons;
+}
+
+function generateActionableSuggestions({
+  venueId,
+  selectedFocusIds,
+  focusCoverage,
+  participantCount,
+  cohortId,
+  coachLevelId,
+  requestedDuration,
+  rejectionSummary,
+  activeRuleset
+}) {
+  const suggestions = [];
+
+  const hasVenueRejection = rejectionSummary.some(r => 
+    r.code === REJECTION_CODES.VENUE_NOT_SUPPORTED || 
+    r.code === REJECTION_CODES.OPEN_SPACE_REQUIRED ||
+    r.code === REJECTION_CODES.NETS_REQUIRED
+  );
+  if (hasVenueRejection && venueId !== 'FULL_OVAL') {
+    suggestions.push({
+      type: 'CHANGE_VENUE',
+      label: 'Change venue to Full Oval',
+      targetVenue: 'FULL_OVAL'
+    });
+  }
+
+  const ineligibleFocuses = focusCoverage.filter(f => !f.isEligible);
+  ineligibleFocuses.forEach(f => {
+    suggestions.push({
+      type: 'REMOVE_FOCUS',
+      label: `Remove '${f.focusId}' focus`,
+      targetFocus: f.focusId
     });
   });
 
-  return {
-    isValid: errors.length === 0,
-    totalElapsedTime,
-    errors
-  };
+  if (requestedDuration > 60) {
+    suggestions.push({
+      type: 'CHANGE_DURATION',
+      label: 'Switch to Express 60-Minute Session',
+      targetDuration: 60
+    });
+  }
+
+  return suggestions;
 }
