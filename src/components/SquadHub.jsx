@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import * as XLSX from 'xlsx';
 import { PLAYER_ROLES, BOWLING_STYLES } from '../config/participantRoles';
+import { parseRosterFile } from '../services/rosterParser';
 
 export default function SquadHub({
   squad = [],
@@ -8,8 +8,7 @@ export default function SquadHub({
   onEditPlayer,
   onImportPlayers,
   onRemovePlayer,
-  videoClips = [],
-  onSelectClipForReview
+  videoClips = []
 }) {
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [roleFilter, setRoleFilter] = useState('ALL');
@@ -30,16 +29,28 @@ export default function SquadHub({
 
   const handleAddSubmit = (e) => {
     e.preventDefault();
-    if (!name.trim() || !jersey) return;
+    const jerseyNum = parseInt(jersey, 10);
+
+    if (!name.trim() || isNaN(jerseyNum) || jerseyNum < 1 || jerseyNum > 999) {
+      alert("Please enter a valid player name and jersey number between 1 and 999.");
+      return;
+    }
+
+    if (squad.some(p => Number(p.jersey) === jerseyNum)) {
+      alert(`Jersey #${jerseyNum} is already assigned to a player in squad.`);
+      return;
+    }
+
     onAddPlayer({
       name: name.trim(),
-      jersey: parseInt(jersey, 10),
+      jersey: jerseyNum,
       position,
       bowlingStyle,
       medical: medical.trim() || 'None',
       attendance: [],
       stats: { totalOvers: 0, stints: 0 }
     });
+
     setName('');
     setJersey('');
     setPosition('TOP_ORDER_BATTER');
@@ -48,7 +59,7 @@ export default function SquadHub({
     setIsAddOpen(false);
   };
 
-  // SheetJS Spreadsheet File Import
+  // Safe CSV/Text Roster File Import
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -56,38 +67,15 @@ export default function SquadHub({
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target.result, { type: 'binary' });
-        const wsName = wb.SheetNames[0];
-        const ws = wb.Sheets[wsName];
-        const data = XLSX.utils.sheet_to_json(ws);
-        
-        // Validate rows
-        const errors = [];
-        const validPlayers = [];
-
-        data.forEach((row, idx) => {
-          if (!row.Name || !row.Jersey) {
-            errors.push(`Row ${idx + 2}: Missing required Name or Jersey #.`);
-          } else {
-            validPlayers.push({
-              name: String(row.Name).trim(),
-              jersey: parseInt(row.Jersey, 10),
-              position: row.Role || 'TOP_ORDER_BATTER',
-              bowlingStyle: row.BowlingStyle || 'RIGHT_ARM_FAST_MEDIUM',
-              medical: row.Medical || 'None',
-              attendance: [],
-              stats: { totalOvers: 0, stints: 0 }
-            });
-          }
-        });
-
-        setSpreadsheetData(validPlayers);
-        setImportErrors(errors);
+        const text = evt.target.result;
+        const result = parseRosterFile(text, squad);
+        setSpreadsheetData(result.players);
+        setImportErrors(result.errors);
       } catch (err) {
-        setImportErrors(['Failed to parse spreadsheet file: ' + err.message]);
+        setImportErrors(['Failed to parse roster file: ' + err.message]);
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsText(file);
   };
 
   const handleConfirmImport = () => {
@@ -113,10 +101,10 @@ export default function SquadHub({
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={() => setIsImportOpen(true)}>
-            📊 SheetJS Import
+          <button type="button" className="btn btn-secondary" onClick={() => setIsImportOpen(true)}>
+            📊 Safe CSV Roster Import
           </button>
-          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
+          <button type="button" className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
             + Add Player
           </button>
         </div>
@@ -125,6 +113,7 @@ export default function SquadHub({
       {/* Role Filter Tabs */}
       <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
         <button 
+          type="button"
           className={`btn ${roleFilter === 'ALL' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setRoleFilter('ALL')}
           style={{ fontSize: '0.8rem', padding: '6px 12px' }}
@@ -133,6 +122,7 @@ export default function SquadHub({
         </button>
         {PLAYER_ROLES.map(role => (
           <button 
+            type="button"
             key={role.id} 
             className={`btn ${roleFilter === role.id ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setRoleFilter(role.id)}
@@ -179,9 +169,9 @@ export default function SquadHub({
               Style: <strong>{player.bowlingStyle || 'None'}</strong>
             </div>
 
-            {player.medical && player.medical !== 'None' && (
+            {player.medicalNotes && player.medicalNotes !== 'None' && (
               <div style={{ fontSize: '0.75rem', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)', padding: '4px 8px', borderRadius: '4px' }}>
-                ⚠️ {player.medical}
+                ⚠️ {player.medicalNotes}
               </div>
             )}
           </div>
@@ -195,18 +185,18 @@ export default function SquadHub({
             <h3 className="scoreboard-font" style={{ color: 'var(--color-squad)', margin: 0 }}>
               Player Profile: #{selectedPlayer.jersey} {selectedPlayer.name}
             </h3>
-            <button className="icon-btn" onClick={() => setSelectedPlayerId(null)}>✕</button>
+            <button type="button" className="icon-btn" onClick={() => setSelectedPlayerId(null)} aria-label="Close profile">✕</button>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', fontSize: '0.85rem' }}>
             <div>Role: <strong>{selectedPlayer.position}</strong></div>
             <div>Bowling Style: <strong>{selectedPlayer.bowlingStyle}</strong></div>
             <div>Workload Overs: <strong>{selectedPlayer.stats?.totalOvers || 0} Overs</strong></div>
-            <div>Medical Notes: <strong>{selectedPlayer.medical}</strong></div>
+            <div>Medical Notes: <strong>{selectedPlayer.medicalNotes || 'None'}</strong></div>
           </div>
 
           <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
-            <button className="btn btn-secondary" onClick={() => onRemovePlayer(selectedPlayer.id)} style={{ color: '#ef4444' }}>
+            <button type="button" className="btn btn-secondary" onClick={() => onRemovePlayer(selectedPlayer.id)} style={{ color: '#ef4444' }}>
               Remove Player from Squad
             </button>
           </div>
@@ -219,32 +209,32 @@ export default function SquadHub({
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="scoreboard-font" style={{ color: 'var(--color-squad)', margin: 0 }}>Add New Player</h3>
-              <button className="icon-btn" onClick={() => setIsAddOpen(false)}>✕</button>
+              <button type="button" className="icon-btn" onClick={() => setIsAddOpen(false)} aria-label="Close modal">✕</button>
             </div>
             <form onSubmit={handleAddSubmit} className="modal-body">
               <div className="form-group">
-                <label>Player Name</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} required />
+                <label htmlFor="add-player-name">Player Name</label>
+                <input id="add-player-name" type="text" value={name} onChange={(e) => setName(e.target.value)} required />
               </div>
               <div className="form-group">
-                <label>Shirt / Jersey #</label>
-                <input type="number" value={jersey} onChange={(e) => setJersey(e.target.value)} required />
+                <label htmlFor="add-player-jersey">Shirt / Jersey # (1-999)</label>
+                <input id="add-player-jersey" type="number" min="1" max="999" value={jersey} onChange={(e) => setJersey(e.target.value)} required />
               </div>
               <div className="form-group">
-                <label>Primary Role</label>
-                <select value={position} onChange={(e) => setPosition(e.target.value)}>
+                <label htmlFor="add-player-role">Primary Role</label>
+                <select id="add-player-role" value={position} onChange={(e) => setPosition(e.target.value)}>
                   {PLAYER_ROLES.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
               </div>
               <div className="form-group">
-                <label>Bowling Style</label>
-                <select value={bowlingStyle} onChange={(e) => setBowlingStyle(e.target.value)}>
+                <label htmlFor="add-player-style">Bowling Style</label>
+                <select id="add-player-style" value={bowlingStyle} onChange={(e) => setBowlingStyle(e.target.value)}>
                   {BOWLING_STYLES.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               </div>
               <div className="form-group">
-                <label>Medical Notes (Optional)</label>
-                <input type="text" value={medical} onChange={(e) => setMedical(e.target.value)} placeholder="e.g. Tape right shoulder" />
+                <label htmlFor="add-player-medical">Medical Notes (Optional)</label>
+                <input id="add-player-medical" type="text" value={medical} onChange={(e) => setMedical(e.target.value)} placeholder="e.g. Tape right shoulder" />
               </div>
               <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }}>Save Player</button>
             </form>
@@ -252,30 +242,33 @@ export default function SquadHub({
         </div>
       )}
 
-      {/* SheetJS Spreadsheet Import Modal */}
+      {/* Safe Roster Import Modal */}
       {isImportOpen && (
         <div className="overlay-backdrop" onClick={() => setIsImportOpen(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="scoreboard-font" style={{ color: 'var(--color-squad)', margin: 0 }}>SheetJS XLSX Roster Import</h3>
-              <button className="icon-btn" onClick={() => setIsImportOpen(false)}>✕</button>
+              <h3 className="scoreboard-font" style={{ color: 'var(--color-squad)', margin: 0 }}>Safe CSV / Text Roster Import</h3>
+              <button type="button" className="icon-btn" onClick={() => setIsImportOpen(false)} aria-label="Close modal">✕</button>
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label>Select Spreadsheet File (.xlsx, .xls, .csv)</label>
-                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} />
+                <label htmlFor="import-file">Select CSV / Text Roster File (.csv, .txt)</label>
+                <input id="import-file" type="file" accept=".csv,.txt" onChange={handleFileUpload} />
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Format: Name, Jersey#, Role, BowlingStyle, MedicalNotes
+                </p>
               </div>
 
               {importErrors.length > 0 && (
                 <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', padding: '10px', borderRadius: '8px', fontSize: '0.8rem' }}>
-                  {importErrors.map((err, idx) => <div key={idx}>{err}</div>)}
+                  {importErrors.map((err, idx) => <div key={idx}>⚠️ {err}</div>)}
                 </div>
               )}
 
               {spreadsheetData.length > 0 && (
                 <div>
                   <h4 style={{ fontSize: '0.85rem', color: 'var(--color-training)', marginBottom: '8px' }}>
-                    Valid Preview ({spreadsheetData.length} Players Found)
+                    Valid Preview ({spreadsheetData.length} Players Verified)
                   </h4>
                   <div style={{ maxHeight: '150px', overflowY: 'auto', fontSize: '0.8rem', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '8px' }}>
                     {spreadsheetData.map((p, idx) => (
@@ -286,8 +279,8 @@ export default function SquadHub({
               )}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px' }}>
-                <button className="btn btn-secondary" onClick={() => setIsImportOpen(false)}>Cancel</button>
-                <button className="btn btn-primary" onClick={handleConfirmImport} disabled={spreadsheetData.length === 0}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsImportOpen(false)}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={handleConfirmImport} disabled={spreadsheetData.length === 0}>
                   Confirm & Import Roster
                 </button>
               </div>
