@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { COHORTS } from '../config/cohorts';
-import { VENUE_MODELS } from '../config/venues';
+import { VENUE_MODELS, resolveFacilityCapabilities } from '../config/venues';
 import { ACTIVITY_CATEGORIES } from '../config/activityCategories';
 import { generateTrainingPlan, calculateBattingCapacity } from '../engine/deterministicPlanner';
 
@@ -13,8 +13,8 @@ export default function TrainingLab({
 }) {
   // Product Flow Steps: 'attendance' | 'parameters' | 'review' | 'active_guided' | 'history'
   const [step, setStep] = useState('attendance');
-  
-  // Attendance State (Does NOT force repopulate if coach intentionally deselects everyone)
+
+  // Checked-in Player IDs (Default to all roster members present)
   const [presentPlayerIds, setPresentPlayerIds] = useState(() => squad.map(p => p.id));
 
   // Session Type State ('STANDARD_SESSION' | 'NETS_SESSION')
@@ -22,18 +22,21 @@ export default function TrainingLab({
 
   // Parameters State
   const [selectedCohort, setSelectedCohort] = useState('U13_JUNIOR');
-  const [selectedVenue, setSelectedVenue] = useState('NET_LANES_TURF');
+  const [selectedVenue, setSelectedVenue] = useState('COMBINED_FACILITY');
   const [duration, setDuration] = useState(90);
   
+  // Combined Facility Features
+  const [hasNetLanes, setHasNetLanes] = useState(true);
+  const [numberOfNets, setNumberOfNets] = useState(2);
+  const [openFieldAvailable, setOpenFieldAvailable] = useState(true);
+  const [hasCentreWicket, setHasCentreWicket] = useState(false);
+  const [hasIndoorArea, setHasIndoorArea] = useState(false);
+  const [coachCount, setCoachCount] = useState(2);
+  const [bowlingMachineAvailable, setBowlingMachineAvailable] = useState(false);
+
   // Standard Multi-Select Focus Picker State
   const [selectedFocusIds, setSelectedFocusIds] = useState(['Batting', 'Ground Fielding']);
   const [focusToAdd, setFocusToAdd] = useState('');
-
-  // Nets Session Specific Parameters
-  const [numberOfNets, setNumberOfNets] = useState(2);
-  const [coachCount, setCoachCount] = useState(2);
-  const [bowlingMachineAvailable, setBowlingMachineAvailable] = useState(false);
-  const [openFieldAvailable, setOpenFieldAvailable] = useState(true);
 
   // Separate Focus Pickers for Nets Session
   const [batterFocuses, setBatterFocuses] = useState(['Batting']);
@@ -43,13 +46,7 @@ export default function TrainingLab({
 
   // Generated Plan & Diagnostics State
   const [activePlan, setActivePlan] = useState(null);
-  const [generatedDrills, setGeneratedDrills] = useState([]);
   const [failureDiagnostics, setFailureDiagnostics] = useState(null);
-
-  // Active Guided Coaching State
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [timerSeconds] = useState(0);
-  const [currentRotationIndex, setCurrentRotationIndex] = useState(0);
 
   // Late Arrival Modal State
   const [isLateModalOpen, setIsLateModalOpen] = useState(false);
@@ -59,24 +56,35 @@ export default function TrainingLab({
     setPresentPlayerIds(prev => 
       prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
     );
+    clearDiagnostics();
   };
 
   const clearDiagnostics = () => {
-    if (failureDiagnostics) setFailureDiagnostics(null);
+    setFailureDiagnostics(null);
   };
 
+  // Handle Venue Dropdown Selection (Auto-populates feature defaults)
+  const handleVenueChange = (vId) => {
+    setSelectedVenue(vId);
+    const caps = resolveFacilityCapabilities(vId);
+    setHasNetLanes(caps.hasNetLanes);
+    if (caps.netLanesCount > 0) setNumberOfNets(caps.netLanesCount);
+    setOpenFieldAvailable(caps.hasOpenField);
+    setHasCentreWicket(caps.hasCentreWicket);
+    setHasIndoorArea(caps.hasIndoorArea);
+    clearDiagnostics();
+  };
+
+  // Add/Remove Focus Handlers
   const handleAddStandardFocus = (focusName) => {
-    if (!focusName || selectedFocusIds.includes(focusName)) return;
-    setSelectedFocusIds(prev => [...prev, focusName]);
+    if (focusName && !selectedFocusIds.includes(focusName)) {
+      setSelectedFocusIds(prev => [...prev, focusName]);
+    }
     setFocusToAdd('');
     clearDiagnostics();
   };
 
   const handleRemoveStandardFocus = (focusName) => {
-    if (selectedFocusIds.length <= 1) {
-      alert("At least one training focus must remain selected.");
-      return;
-    }
     setSelectedFocusIds(prev => prev.filter(f => f !== focusName));
     clearDiagnostics();
   };
@@ -94,6 +102,14 @@ export default function TrainingLab({
   const handleGeneratePlan = () => {
     setFailureDiagnostics(null);
 
+    const facilityFeatures = {
+      hasNetLanes,
+      netLanesCount: numberOfNets,
+      hasOpenField: openFieldAvailable,
+      hasCentreWicket,
+      hasIndoorArea
+    };
+
     const result = generateTrainingPlan({
       sessionType,
       requestedDuration: duration,
@@ -103,6 +119,7 @@ export default function TrainingLab({
       coachCount,
       bowlingMachineAvailable,
       openFieldAvailable,
+      facilityFeatures,
       batterFocuses,
       bowlerFocuses,
       fieldingFocuses,
@@ -120,19 +137,20 @@ export default function TrainingLab({
     }
 
     setActivePlan(result.plan);
-    setGeneratedDrills(result.plan.activities || []);
-    setCurrentRotationIndex(0);
     setStep('review');
   };
 
   // Apply Actionable Suggestion Click Handler
   const handleApplySuggestion = (suggestion) => {
-    if (suggestion.type === 'CHANGE_VENUE' && suggestion.targetVenue) {
-      setSelectedVenue(suggestion.targetVenue);
+    if (suggestion.type === 'ENABLE_FACILITY') {
+      setOpenFieldAvailable(true);
+    } else if (suggestion.type === 'CHANGE_VENUE' && suggestion.targetVenue) {
+      handleVenueChange(suggestion.targetVenue);
     } else if (suggestion.type === 'CHANGE_BATTING_MINS' && suggestion.targetMins) {
       setRequestedBattingMins(suggestion.targetMins.toString());
     } else if (suggestion.type === 'ADD_NET') {
       setNumberOfNets(prev => Math.min(4, prev + 1));
+      setHasNetLanes(true);
     } else if (suggestion.type === 'CHANGE_DURATION' && suggestion.targetDuration) {
       setDuration(suggestion.targetDuration);
     } else if (suggestion.type === 'REMOVE_FOCUS' && suggestion.targetFocus) {
@@ -224,10 +242,10 @@ export default function TrainingLab({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '640px' }}>
           <div>
             <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
-              Step 2: Session Parameters
+              Step 2: Session Parameters & Available Facilities
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              Select session type, venue, net availability, and tactical focus parameters.
+              Select session type, facility capabilities, net availability, and tactical focus priorities.
             </p>
           </div>
 
@@ -243,7 +261,7 @@ export default function TrainingLab({
                   checked={sessionType === 'STANDARD_SESSION'} 
                   onChange={() => { setSessionType('STANDARD_SESSION'); clearDiagnostics(); }} 
                 />
-                <span>Standard Team Training</span>
+                <span>Standard Team Training (Flexible Phases)</span>
               </label>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
@@ -254,7 +272,7 @@ export default function TrainingLab({
                   checked={sessionType === 'NETS_SESSION'} 
                   onChange={() => { setSessionType('NETS_SESSION'); clearDiagnostics(); }} 
                 />
-                <span>🏏 Cricket Nets Session</span>
+                <span>🏏 Cricket Nets Rotation Session</span>
               </label>
             </div>
           </div>
@@ -265,12 +283,12 @@ export default function TrainingLab({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
                 <span style={{ fontSize: '1.3rem' }}>⚠️</span>
                 <h3 className="scoreboard-font" style={{ margin: 0, fontSize: '1.2rem', color: '#ef4444' }}>
-                  GENERATION FAILED
+                  GENERATION DIAGNOSTICS
                 </h3>
               </div>
 
               <div>
-                <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>Why:</strong>
+                <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>Root Rejection Reasons:</strong>
                 <ul style={{ margin: '6px 0 0 0', paddingLeft: '20px', fontSize: '0.85rem', color: '#ef4444', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {failureDiagnostics.primaryReasons?.map((reason, idx) => (
                     <li key={idx}>• {reason}</li>
@@ -280,7 +298,7 @@ export default function TrainingLab({
 
               {failureDiagnostics.suggestedChanges && failureDiagnostics.suggestedChanges.length > 0 && (
                 <div style={{ borderTop: '1px solid rgba(239,68,68,0.2)', paddingTop: '10px' }}>
-                  <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>Try:</strong>
+                  <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>Actionable Suggestions:</strong>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '8px' }}>
                     {failureDiagnostics.suggestedChanges.map((sug, idx) => (
                       <button 
@@ -299,25 +317,64 @@ export default function TrainingLab({
             </div>
           )}
 
+          {/* COMBINED FACILITY & VENUE CONFIGURATION */}
+          <div className="form-group" style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
+            <label htmlFor="param-venue" style={{ color: 'var(--color-training)' }}>Training Facility Base Location</label>
+            <select id="param-venue" value={selectedVenue} onChange={(e) => handleVenueChange(e.target.value)}>
+              {VENUE_MODELS.map(v => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+
+            <div style={{ marginTop: '14px' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-primary)' }}>Available Facility Features Today:</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '8px', fontSize: '0.85rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={hasNetLanes} onChange={(e) => { setHasNetLanes(e.target.checked); clearDiagnostics(); }} />
+                  <span>☑ Net Lanes Enclosure</span>
+                </label>
+
+                {hasNetLanes && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <label htmlFor="param-nets-count" style={{ fontSize: '0.8rem' }}>Lanes:</label>
+                    <input id="param-nets-count" type="number" min="1" max="4" value={numberOfNets} onChange={(e) => { setNumberOfNets(Number(e.target.value)); clearDiagnostics(); }} style={{ width: '60px', padding: '4px 8px' }} />
+                  </div>
+                )}
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={openFieldAvailable} onChange={(e) => { setOpenFieldAvailable(e.target.checked); clearDiagnostics(); }} />
+                  <span>☑ Full / Open Field Space</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={hasCentreWicket} onChange={(e) => { setHasCentreWicket(e.target.checked); clearDiagnostics(); }} />
+                  <span>☐ Centre Wicket Pitch</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={hasIndoorArea} onChange={(e) => { setHasIndoorArea(e.target.checked); clearDiagnostics(); }} />
+                  <span>☐ Indoor Fielding Area</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           {/* NETS SESSION PARAMETERS */}
           {sessionType === 'NETS_SESSION' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="form-group">
-                  <label htmlFor="param-nets">Available Net Lanes</label>
-                  <input id="param-nets" type="number" min="1" max="4" value={numberOfNets} onChange={(e) => { setNumberOfNets(Number(e.target.value)); clearDiagnostics(); }} />
-                </div>
-                <div className="form-group">
                   <label htmlFor="param-coaches">Available Coaches</label>
                   <input id="param-coaches" type="number" min="1" max="5" value={coachCount} onChange={(e) => { setCoachCount(Number(e.target.value)); clearDiagnostics(); }} />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="param-duration-nets">Total Session Duration (Mins)</label>
+                  <input id="param-duration-nets" type="number" min="30" max="120" value={duration} onChange={(e) => { setDuration(Number(e.target.value)); clearDiagnostics(); }} />
                 </div>
               </div>
 
               <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={openFieldAvailable} onChange={(e) => { setOpenFieldAvailable(e.target.checked); clearDiagnostics(); }} />
-                  <span>Open Field Space Available</span>
-                </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                   <input type="checkbox" checked={bowlingMachineAvailable} onChange={(e) => { setBowlingMachineAvailable(e.target.checked); clearDiagnostics(); }} />
                   <span>Bowling Machine Available</span>
@@ -382,25 +439,23 @@ export default function TrainingLab({
           ) : (
             /* STANDARD SESSION PARAMETERS */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div className="form-group">
-                <label htmlFor="param-cohort">Participant Cohort</label>
-                <select id="param-cohort" value={selectedCohort} onChange={(e) => { setSelectedCohort(e.target.value); clearDiagnostics(); }}>
-                  {Object.values(COHORTS).map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="form-group">
+                  <label htmlFor="param-cohort">Participant Cohort</label>
+                  <select id="param-cohort" value={selectedCohort} onChange={(e) => { setSelectedCohort(e.target.value); clearDiagnostics(); }}>
+                    {Object.values(COHORTS).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="param-duration-std">Session Duration (Mins)</label>
+                  <input id="param-duration-std" type="number" min="30" max="120" value={duration} onChange={(e) => { setDuration(Number(e.target.value)); clearDiagnostics(); }} />
+                </div>
               </div>
 
-              <div className="form-group">
-                <label htmlFor="param-venue">Venue / Net Lanes Availability</label>
-                <select id="param-venue" value={selectedVenue} onChange={(e) => { setSelectedVenue(e.target.value); clearDiagnostics(); }}>
-                  {VENUE_MODELS.map(v => (
-                    <option key={v.id} value={v.id}>{v.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Standard Session Multi-Select Focus Picker (Restored M1) */}
+              {/* Standard Session Multi-Select Focus Picker */}
               <div className="form-group" style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
                 <label style={{ color: 'var(--color-training)', marginBottom: '8px' }}>
                   Tactical / Technical Focus Priorities ({selectedFocusIds.length} Selected)
@@ -456,82 +511,78 @@ export default function TrainingLab({
             </div>
           )}
 
-          <div className="form-group">
-            <label htmlFor="param-duration">Total Session Duration ({duration} Minutes)</label>
-            <input id="param-duration" type="range" min="30" max="120" step="15" value={duration} onChange={(e) => { setDuration(Number(e.target.value)); clearDiagnostics(); }} />
-          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+            <button type="button" className="btn btn-secondary" onClick={() => setStep('attendance')}>
+              ← Back to Attendance
+            </button>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => setStep('attendance')}>← Back</button>
             <button type="button" className="btn btn-training" onClick={handleGeneratePlan}>
-              ⚡ Run Deterministic Planner Engine
+              ⚡ Generate Session Plan
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 4: Review Training Plan Screen */}
+      {/* Step 3: Review & Replace Drills View */}
       {step === 'review' && activePlan && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
+                {activePlan.templateName} ({activePlan.totalElapsedTime} Mins)
+              </h2>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                Deterministic plan validated for {presentPlayerIds.length} players across active facility features.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setStep('parameters')}>
+                ⚙️ Adjust Parameters
+              </button>
+              <button type="button" className="btn btn-training" onClick={() => setStep('active_guided')}>
+                🚀 Start Guided Session
+              </button>
+            </div>
+          </div>
+
+          {/* Render Plan Structure (Phases / Net Rotations) */}
           {activePlan.sessionType === 'NETS_SESSION' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <span className="badge badge-ruleset" style={{ fontSize: '0.75rem', alignSelf: 'flex-start' }}>
-                  CRICKET NETS SESSION — SINGLE BATTING TURN ARCHITECTURE
-                </span>
-                <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
-                  Nets Rotation Overview
-                </h2>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', fontSize: '0.85rem' }}>
-                  <div>Total Players: <strong>{activePlan.participantCount}</strong></div>
-                  <div>Net Lanes: <strong>{activePlan.numberOfNets} Nets</strong></div>
-                  <div>Batting Allocation: <strong>{activePlan.effectiveBattingMinutes} mins/batter</strong></div>
-                  <div>Rotation Groups: <strong>{activePlan.rotationCount} Groups</strong></div>
-                </div>
-              </div>
-
-              <div style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <h3 className="scoreboard-font" style={{ color: 'var(--color-match)', margin: 0, fontSize: '1.1rem' }}>
-                  Batting Allocation Summary ({activePlan.battingSummary?.length} Batters — 1 Turn Each)
-                </h3>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px', fontSize: '0.85rem' }}>
-                  {activePlan.battingSummary?.map((bs, idx) => (
-                    <div key={idx} style={{ background: 'var(--bg-floor)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-                      <strong>{bs.name}</strong> — {bs.allocatedMinutes} min — {bs.netName} — Rotation {bs.rotationNumber}
+              <div style={{ padding: '12px 16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '10px', fontSize: '0.85rem' }}>
+                <strong>Single-Turn Batting Allocation Summary ({activePlan.battingSummary.length} Batters):</strong>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px', marginTop: '8px' }}>
+                  {activePlan.battingSummary.map((b, idx) => (
+                    <div key={idx} style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                      👤 <strong>{b.name}</strong>: {b.allocatedMinutes}m in {b.netName} (Rot {b.rotationNumber})
                     </div>
                   ))}
                 </div>
               </div>
 
-              {activePlan.rotations.map((rot) => (
-                <div key={rot.rotationNumber} style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <h3 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0, fontSize: '1.1rem' }}>
-                    ROTATION {rot.rotationNumber} — {rot.duration} MINUTES
-                  </h3>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
-                    {rot.stations.map((st) => (
-                      <div key={st.stationId} style={{ backgroundColor: 'var(--bg-floor)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: '700', color: 'var(--color-training)', fontSize: '0.9rem' }}>{st.name}</span>
-                          <span className="badge" style={{ background: 'rgba(58, 134, 255, 0.15)', color: 'var(--color-squad)' }}>{st.assignedGroup}</span>
+              {activePlan.rotations.map((rot, rIdx) => (
+                <div key={rIdx} style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
+                  <h4 style={{ color: 'var(--color-training)', margin: '0 0 10px 0' }}>
+                    Rotation {rot.rotationNumber} ({rot.duration} Mins)
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+                    {rot.stations.map((st, sIdx) => (
+                      <div key={sIdx} style={{ padding: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-light)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                        <div style={{ fontWeight: '700', color: 'var(--color-match)', marginBottom: '4px' }}>
+                          {st.name} ({st.assignedGroup})
                         </div>
-
                         {st.type === 'NET_LANE' ? (
-                          <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <div>🎯 <strong>Batter Focus:</strong> {st.batterFocus}</div>
-                            <div>🏏 <strong>Batting Order (Single Turn):</strong> {st.batters.length > 0 ? st.batters.join(', ') : 'None (Group completed batting turn)'}</div>
-                            <div>🎯 <strong>Bowler Focus:</strong> {st.bowlerFocus}</div>
-                            <div>⚡ <strong>Bowlers / Target Work:</strong> {st.bowlers.join(', ')}</div>
-                          </div>
+                          <>
+                            <div>🏏 <strong>Batters:</strong> {st.batters.join(', ') || 'None'} ({st.batterFocus})</div>
+                            <div>⚾ <strong>Bowlers:</strong> {st.bowlers.join(', ') || 'Target Machine'} ({st.bowlerFocus})</div>
+                            {st.secondaryActivity && (
+                              <div style={{ marginTop: '4px', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                                📌 Secondary Activity: {st.secondaryActivity.title}
+                              </div>
+                            )}
+                          </>
                         ) : (
-                          <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <div>🎯 <strong>Fielding Focus:</strong> {st.fieldingFocus}</div>
-                            <div>🏃 <strong>Fielders:</strong> {st.players.join(', ')}</div>
-                            <div>📋 <strong>Drill:</strong> {st.activity?.title}</div>
-                          </div>
+                          <div>🛡️ <strong>Fielders:</strong> {st.players.join(', ')} ({st.fieldingFocus})</div>
                         )}
                       </div>
                     ))}
@@ -541,108 +592,111 @@ export default function TrainingLab({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
-                Review Training Plan ({generatedDrills.length} Drills — {activePlan.totalElapsedTime}m)
-              </h2>
-
-              {generatedDrills.map((drill, idx) => (
-                <div key={`${drill.id}_${idx}`} style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '1.1rem', margin: 0 }}>#{drill.id} - {drill.title}</h3>
-                    <span className="badge" style={{ background: 'var(--color-training-glow)', color: 'var(--color-training)' }}>
-                      {drill.assignedDuration} mins
-                    </span>
+              {activePlan.blocks.map((block, bIdx) => (
+                <div key={bIdx} style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h3 className="scoreboard-font" style={{ margin: 0, color: 'var(--color-training)' }}>
+                      {block.phaseName} ({block.phaseDuration} Mins)
+                    </h3>
+                    <span className="badge">{block.type}</span>
                   </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{drill.setup}</p>
+
+                  {block.type === 'CONCURRENT_STATIONS' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px' }}>
+                      {block.stations.map((st, sIdx) => (
+                        <div key={sIdx} style={{ padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+                          <h4 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                            Station {st.stationNumber}: {st.title}
+                          </h4>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                            Category: {st.activityCategory} | Focus: 🎯 {st.contributingFocus}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    block.activities?.map((act, aIdx) => (
+                      <div key={aIdx} style={{ padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+                        <h4 style={{ margin: '0 0 4px 0', fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                          {act.title}
+                        </h4>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                          Category: {act.activityCategory} | Focus: 🎯 {act.contributingFocus}
+                        </p>
+                      </div>
+                    ))
+                  )}
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => setStep('parameters')}>← Adjust Parameters</button>
-            <button type="button" className="btn btn-training" onClick={() => setStep('active_guided')}>
-              ▶ Start Session (Guided Live Mode)
-            </button>
+      {/* Step 4: Active Guided Coaching Session */}
+      {step === 'active_guided' && activePlan && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
+                Active Guided Coaching — {activePlan.templateName}
+              </h2>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                Real-time phase tracking and late arrival management.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setIsLateModalOpen(true)}>
+                ➕ Late Arrival Check-in
+              </button>
+              <button type="button" className="btn btn-training" onClick={() => setStep('history')}>
+                🏁 Complete & Save Session
+              </button>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '12px' }}>
+            <h3 style={{ margin: '0 0 10px 0', color: 'var(--color-training)' }}>
+              Active Session Flow View
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+              Session in progress with {presentPlayerIds.length} checked-in participants.
+            </p>
           </div>
         </div>
       )}
 
-      {/* Step 5: Guided Active Coaching Mode */}
-      {step === 'active_guided' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center', textAlign: 'center' }}>
-          <div className="badge badge-ruleset" style={{ fontSize: '0.8rem' }}>GUIDED ACTIVE COACHING MODE</div>
-          
-          <div className="scoreboard-font" style={{ fontSize: '3.5rem', color: 'var(--color-training)' }}>
-            {Math.floor(timerSeconds / 60).toString().padStart(2, '0')}:{(timerSeconds % 60).toString().padStart(2, '0')}
-          </div>
-
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <button type="button" className="btn btn-training" onClick={() => setIsTimerRunning(!isTimerRunning)}>
-              {isTimerRunning ? '⏸ Pause Timer' : '▶ Start Timer'}
-            </button>
-            {activePlan?.sessionType === 'NETS_SESSION' && (
-              <button 
-                type="button"
-                className="btn btn-secondary" 
-                onClick={() => setCurrentRotationIndex((prev) => (prev + 1) % activePlan.rotations.length)}
-              >
-                🔄 Next Rotation ({currentRotationIndex + 1}/{activePlan.rotations.length})
-              </button>
-            )}
-            <button type="button" className="btn btn-secondary" onClick={() => setIsLateModalOpen(true)}>
-              ➕ Hot-Inject Late Arrival
-            </button>
-          </div>
-
-          {activePlan?.sessionType === 'NETS_SESSION' ? (
-            <div style={{ width: '100%', maxWidth: '560px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '14px', padding: '20px', textAlign: 'left' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <span style={{ fontWeight: '700', color: 'var(--color-training)' }}>
-                  ROTATION {currentRotationIndex + 1} OF {activePlan.rotations.length}
-                </span>
-                <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--color-match)' }}>
-                  Single Turn Queue Active
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
-                {activePlan.rotations[currentRotationIndex]?.stations.map(st => (
-                  <div key={st.stationId} style={{ background: 'var(--bg-floor)', padding: '10px', borderRadius: '8px' }}>
-                    <strong>{st.name} ({st.assignedGroup}):</strong> {st.type === 'NET_LANE' ? `Batters: ${st.batters.join(', ') || 'Queue Completed'} | Bowlers: ${st.bowlers.join(', ')}` : `Fielding: ${st.players.join(', ')}`}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div style={{ width: '100%', maxWidth: '500px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px', padding: '20px', textAlign: 'left' }}>
-              <h4 style={{ margin: 0, color: 'var(--color-training)' }}>Active Drill: {generatedDrills[0]?.title}</h4>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                {generatedDrills[0]?.setup}
-              </p>
-            </div>
-          )}
-
-          <button type="button" className="btn btn-secondary" onClick={() => setStep('attendance')} style={{ marginTop: '20px' }}>
-            End & Save Session Log
+      {/* Step 5: History View */}
+      {step === 'history' && (
+        <div style={{ padding: '20px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
+          <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
+            Session Saved to Workstation History
+          </h2>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            The session plan and attendance record have been saved locally.
+          </p>
+          <button type="button" className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setStep('attendance')}>
+            ↺ Start New Session
           </button>
         </div>
       )}
 
-      {/* Late Arrival Player Modal */}
+      {/* Late Arrival Check-in Modal */}
       {isLateModalOpen && (
-        <div className="overlay-backdrop" onClick={() => setIsLateModalOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>Hot-Inject Late Arrival Player</h3>
-              <button type="button" className="icon-btn" onClick={() => setIsLateModalOpen(false)} aria-label="Close modal">✕</button>
-            </div>
-            <form onSubmit={handleAddLatePlayer} className="modal-body">
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--color-training)', padding: '24px', borderRadius: '16px', width: '360px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 className="scoreboard-font" style={{ margin: 0, color: 'var(--color-training)' }}>Late Arrival Check-in</h3>
+            <form onSubmit={handleAddLatePlayer} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div className="form-group">
                 <label htmlFor="late-player-name">Player Name</label>
-                <input id="late-player-name" type="text" value={lateName} onChange={(e) => setLateName(e.target.value)} required />
+                <input id="late-player-name" type="text" value={lateName} onChange={(e) => setLateName(e.target.value)} placeholder="e.g. Alex Green" autoFocus required />
               </div>
-              <button type="submit" className="btn btn-training">Inject Player into Roster & Attendance</button>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsLateModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-training">Check In</button>
+              </div>
             </form>
           </div>
         </div>

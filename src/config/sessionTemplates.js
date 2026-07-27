@@ -1,94 +1,102 @@
 export const SESSION_TEMPLATES = {
   STANDARD_90_MIN: {
     id: 'STANDARD_90_MIN',
-    name: 'Standard 90-Minute Session',
+    name: 'Cricket Standard Team Training (90 Mins)',
     totalDuration: 90,
-    minDuration: 80,
-    maxDuration: 100,
+    minDuration: 75,
+    maxDuration: 105,
     sessionType: 'STANDARD_SESSION',
-    requiredBlocks: [
+    phases: [
       {
-        blockId: 'b_warmup',
-        phaseName: 'Warm-up & Movement Prep',
+        phaseId: 'p_prep',
+        phaseName: 'Preparation Phase',
         slotType: 'Warm-up',
-        type: 'SERIAL',
-        minDuration: 10,
+        required: true,
         idealDuration: 15,
+        minDuration: 10,
         maxDuration: 20
       },
       {
-        blockId: 'b_tech_stations',
-        phaseName: 'Technical Skill Stations',
-        slotType: 'Technical Skill',
-        type: 'CONCURRENT_STATIONS',
-        minDuration: 20,
-        idealDuration: 30,
-        maxDuration: 40,
-        stationsCount: 2
+        phaseId: 'p_dev',
+        phaseName: 'Development Phase',
+        slotType: 'Development',
+        required: true,
+        idealDuration: 40,
+        minDuration: 30,
+        maxDuration: 55,
+        structuralOptions: [
+          { type: 'CONCURRENT_GROUPS', stationCount: 2, name: 'Concurrent Skill Groups / Stations' },
+          { type: 'SERIAL_WHOLE_GROUP', name: 'Sequential Whole-Group Skill Blocks' },
+          { type: 'SINGLE_WHOLE_GROUP', name: 'Single Whole-Group Skill Focus' }
+        ]
       },
       {
-        blockId: 'b_game_scenario',
-        phaseName: 'Game-Based Scenario',
+        phaseId: 'p_app',
+        phaseName: 'Application Phase',
         slotType: 'Game-Based Scenario',
-        type: 'MATCH_SIM',
-        minDuration: 20,
-        idealDuration: 35,
-        maxDuration: 45
+        required: true,
+        idealDuration: 25,
+        minDuration: 15,
+        maxDuration: 35
       },
       {
-        blockId: 'b_cooldown',
-        phaseName: 'Warm-down & Recovery Debrief',
+        phaseId: 'p_cooldown',
+        phaseName: 'Cool-Down Phase',
         slotType: 'Warm-down',
-        type: 'SERIAL',
-        minDuration: 5,
+        required: false,
         idealDuration: 10,
+        minDuration: 5,
         maxDuration: 15
       }
     ]
   },
   EXPRESS_60_MIN: {
     id: 'EXPRESS_60_MIN',
-    name: 'Express 60-Minute Session',
+    name: 'Cricket Express Team Training (60 Mins)',
     totalDuration: 60,
-    minDuration: 55,
-    maxDuration: 65,
+    minDuration: 45,
+    maxDuration: 75,
     sessionType: 'STANDARD_SESSION',
-    requiredBlocks: [
+    phases: [
       {
-        blockId: 'b_warmup',
-        phaseName: 'Warm-up & Movement Prep',
+        phaseId: 'p_prep',
+        phaseName: 'Preparation Phase',
         slotType: 'Warm-up',
-        type: 'SERIAL',
-        minDuration: 10,
+        required: true,
         idealDuration: 10,
+        minDuration: 10,
         maxDuration: 15
       },
       {
-        blockId: 'b_tech_stations',
-        phaseName: 'Technical Skill Stations',
-        slotType: 'Technical Skill',
-        type: 'CONCURRENT_STATIONS',
-        minDuration: 15,
+        phaseId: 'p_dev',
+        phaseName: 'Development Phase',
+        slotType: 'Development',
+        required: true,
         idealDuration: 25,
-        maxDuration: 30,
-        stationsCount: 2
+        minDuration: 20,
+        maxDuration: 35,
+        structuralOptions: [
+          { type: 'CONCURRENT_GROUPS', stationCount: 2, name: 'Concurrent Skill Groups / Stations' },
+          { type: 'SERIAL_WHOLE_GROUP', name: 'Sequential Whole-Group Skill Blocks' },
+          { type: 'SINGLE_WHOLE_GROUP', name: 'Single Whole-Group Skill Focus' }
+        ]
       },
       {
-        blockId: 'b_game_scenario',
-        phaseName: 'Game-Based Scenario',
+        phaseId: 'p_app',
+        phaseName: 'Application Phase',
         slotType: 'Game-Based Scenario',
-        type: 'MATCH_SIM',
-        minDuration: 15,
+        required: true,
         idealDuration: 20,
+        minDuration: 10,
         maxDuration: 25
       },
       {
-        blockId: 'b_cooldown',
-        phaseName: 'Warm-down & Recovery Debrief',
+        phaseId: 'p_cooldown',
+        phaseName: 'Cool-Down Phase',
         slotType: 'Warm-down',
-        type: 'SERIAL',
-        minDuration: 5,
+        required: false,
         idealDuration: 5,
+        minDuration: 5,
         maxDuration: 10
       }
     ]
@@ -100,32 +108,32 @@ export const SESSION_TEMPLATES = {
     minDuration: 30,
     maxDuration: 120,
     sessionType: 'NETS_SESSION',
-    requiredBlocks: [
+    phases: [
       {
-        blockId: 'b_warmup',
-        phaseName: 'Warm-up & Movement Prep',
+        phaseId: 'p_prep',
+        phaseName: 'Preparation Phase',
         slotType: 'Warm-up',
-        type: 'SERIAL',
-        minDuration: 10,
+        required: true,
         idealDuration: 10,
+        minDuration: 10,
         maxDuration: 15
       },
       {
-        blockId: 'b_nets_rotations',
+        phaseId: 'p_nets_rotations',
         phaseName: 'Net Lane Concurrent Stations & Rotation',
         slotType: 'Nets Rotation',
-        type: 'NETS_ROTATION_BLOCK',
-        minDuration: 35,
+        required: true,
         idealDuration: 70,
+        minDuration: 35,
         maxDuration: 95
       },
       {
-        blockId: 'b_cooldown',
-        phaseName: 'Warm-down & Recovery Debrief',
+        phaseId: 'p_cooldown',
+        phaseName: 'Cool-Down Phase',
         slotType: 'Warm-down',
-        type: 'SERIAL',
-        minDuration: 5,
+        required: false,
         idealDuration: 10,
+        minDuration: 5,
         maxDuration: 15
       }
     ]

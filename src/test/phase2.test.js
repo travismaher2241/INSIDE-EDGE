@@ -16,7 +16,7 @@ describe('Phase 2 - Training Planners Verification & Invariants', () => {
     });
 
     expect(res.success).toBe(true);
-    expect(res.plan.blocks.length).toBe(4);
+    expect(res.plan.blocks.length).toBeGreaterThanOrEqual(3);
     expect(res.plan.activities.length).toBeGreaterThan(0);
   });
 
@@ -48,14 +48,83 @@ describe('Phase 2 - Training Planners Verification & Invariants', () => {
     });
   });
 
+  // Flexible Cricket Session Template & Structures
+  it('4. Standard Team Training does not require a hardcoded Technical Skill Stations block', () => {
+    const res = generateTrainingPlan({
+      sessionType: 'STANDARD_SESSION',
+      requestedDuration: 90,
+      selectedFocusIds: ['Batting', 'Ground Fielding'],
+      participantCount: 12
+    });
+
+    expect(res.success).toBe(true);
+    const hasTechBlock = res.plan.blocks.some(b => b.blockId === 'b_tech_stations');
+    expect(hasTechBlock).toBe(false); // Clean phase-based architecture
+  });
+
+  it('5. Generates Batting + Ground Fielding using concurrent groups or sequential whole-group blocks', () => {
+    const res = generateTrainingPlan({
+      sessionType: 'STANDARD_SESSION',
+      requestedDuration: 90,
+      selectedFocusIds: ['Batting', 'Ground Fielding'],
+      participantCount: 12,
+      facilityFeatures: { hasNetLanes: true, hasOpenField: true }
+    });
+
+    expect(res.success).toBe(true);
+    const devPhase = res.plan.blocks.find(b => b.phaseId === 'p_dev');
+    expect(devPhase).toBeDefined();
+    expect(['CONCURRENT_GROUPS', 'SERIAL_WHOLE_GROUP', 'SINGLE_WHOLE_GROUP']).toContain(devPhase.type);
+  });
+
+  it('6. Venue facility rejection provides grounded explanation when Ground Fielding requires open field space', () => {
+    const res = generateTrainingPlan({
+      sessionType: 'STANDARD_SESSION',
+      requestedDuration: 90,
+      venueId: 'NET_LANES_TURF',
+      facilityFeatures: { hasNetLanes: true, hasOpenField: false },
+      selectedFocusIds: ['Ground Fielding'],
+      participantCount: 12
+    });
+
+    expect(res.success).toBe(false);
+    const reason = res.primaryReasons.join(' ');
+    expect(reason).toContain('Ground Fielding requires open training space');
+    const sug = res.suggestedChanges.find(s => s.type === 'ENABLE_FACILITY');
+    expect(sug).toBeDefined();
+    expect(sug.label).toContain("Full/open field space");
+  });
+
+  it('7. Venue/Duration suggestions are shown ONLY when venue/duration is genuinely the root constraint', () => {
+    // Valid session — no suggestions
+    const validRes = generateTrainingPlan({
+      sessionType: 'STANDARD_SESSION',
+      requestedDuration: 90,
+      facilityFeatures: { hasNetLanes: true, hasOpenField: true },
+      selectedFocusIds: ['Batting', 'Ground Fielding'],
+      participantCount: 10
+    });
+    expect(validRes.success).toBe(true);
+
+    // Rejection due to venue space — suggestion should be facility/venue specific
+    const venueRes = generateTrainingPlan({
+      sessionType: 'STANDARD_SESSION',
+      requestedDuration: 90,
+      venueId: 'NET_LANES_TURF',
+      facilityFeatures: { hasNetLanes: true, hasOpenField: false },
+      selectedFocusIds: ['Ground Fielding'],
+      participantCount: 10
+    });
+    expect(venueRes.success).toBe(false);
+    expect(venueRes.suggestedChanges.some(s => s.type === 'ENABLE_FACILITY' || s.type === 'CHANGE_VENUE')).toBe(true);
+  });
+
   // Participant Matrix Testing (0, 1, 10, 11, 12, 17, 18, 30)
-  it('4. Handles participant matrix (0, 1, 10, 11, 12, 17, 18, 30) safely', () => {
-    // Zero attendance should fail gracefully with diagnostic
+  it('8. Handles participant matrix (0, 1, 10, 11, 12, 17, 18, 30) safely', () => {
     const zeroRes = generateTrainingPlan({ sessionType: 'STANDARD_SESSION', participantCount: 0 });
     expect(zeroRes.success).toBe(false);
     expect(zeroRes.primaryReasons[0]).toContain('zero');
 
-    // Valid participant counts should generate plans
     [1, 10, 11, 12, 17, 18, 30].forEach(count => {
       const res = generateTrainingPlan({
         sessionType: 'NETS_SESSION',
@@ -70,7 +139,7 @@ describe('Phase 2 - Training Planners Verification & Invariants', () => {
   });
 
   // Nets Matrix (1, 2, 3, 4 Nets)
-  it('5. Generates valid single-turn nets plans across 1 to 4 nets', () => {
+  it('9. Generates valid single-turn nets plans across 1 to 4 nets', () => {
     [1, 2, 3, 4].forEach(netCount => {
       const res = generateNetsSessionPlan({
         numberOfNets: netCount,
@@ -83,7 +152,7 @@ describe('Phase 2 - Training Planners Verification & Invariants', () => {
   });
 
   // Insufficient Net Capacity Validation
-  it('6. Rejects 23-minute rotation with impossible per-batter allocation', () => {
+  it('10. Rejects 23-minute rotation with impossible per-batter allocation', () => {
     const res = generateNetsSessionPlan({
       numberOfNets: 1,
       totalDuration: 30,
