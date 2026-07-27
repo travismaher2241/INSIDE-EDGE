@@ -12,6 +12,7 @@ export function generateCentreWicketPlan({
   requestedDuration,
   participantCount = 11,
   squad = [],
+  teamsAttending = [],
   scenarioObjective = 'DEATH_OVERS',
   batterFocuses = ['Power Hitting'],
   bowlerFocuses = ['Death Yorker Execution'],
@@ -48,15 +49,31 @@ export function generateCentreWicketPlan({
   const primaryBowlingFocus = bowlerFocuses[0] || scenario.defaultBowlingFocus;
   const primaryTacticalFocus = tacticalFocuses[0] || scenario.defaultTacticalFocus;
 
-  // 2. Initialize Player Tracking and Assign Live Roles
-  const activeRoster = (squad && squad.length >= participantCount)
-    ? squad.slice(0, participantCount)
-    : Array.from({ length: participantCount }, (_, i) => ({
-        id: `p_${i + 1}`,
-        name: `Player ${i + 1}`,
-        jersey: i + 1,
+  // 2. Initialize Player Roster and Roles
+  let activeRoster = [];
+  if (squad && squad.length >= participantCount) {
+    activeRoster = squad.slice(0, participantCount);
+  } else if (teamsAttending && teamsAttending.length > 0) {
+    teamsAttending.forEach(team => {
+      if (team.roster && team.roster.length > 0) {
+        activeRoster.push(...team.roster);
+      }
+    });
+    activeRoster = activeRoster.slice(0, participantCount);
+  }
+
+  if (activeRoster.length < participantCount) {
+    const diff = participantCount - activeRoster.length;
+    for (let i = 0; i < diff; i++) {
+      const pNum = activeRoster.length + 1;
+      activeRoster.push({
+        id: `p_${pNum}`,
+        name: `Player ${pNum}`,
+        jersey: pNum,
         role: 'All Rounder'
-      }));
+      });
+    }
+  }
 
   const striker = activeRoster[0];
   const nonStriker = activeRoster[1];
@@ -182,6 +199,28 @@ export function generateCentreWicketPlan({
     });
   });
 
+  const timeline = [
+    { timeSlot: `0:00 - 0:${prepDuration}`, phaseName: 'Preparation & Scenario Briefing', activity: 'Dynamic Warm-Up', details: 'Field briefing & captain scenario targets.' },
+    { timeSlot: `0:${prepDuration} - 0:${prepDuration + primaryScenarioDuration}`, phaseName: `Primary Scenario (${scenario.name})`, activity: 'Centre Wicket Scenario', details: `Batting Focus: ${primaryBattingFocus} | Bowling: ${primaryBowlingFocus}` },
+    { timeSlot: `0:${prepDuration + primaryScenarioDuration} - 0:${prepDuration + totalScenarioDuration}`, phaseName: 'Secondary Tactical Phase', activity: 'Role-Swap & Boundary Defense', details: `Tactical Focus: ${primaryTacticalFocus}` },
+    { timeSlot: `0:${prepDuration + totalScenarioDuration} - 0:${sessionDuration}`, phaseName: 'Cool-Down & Debrief', activity: 'Squad Debrief', details: 'Scenario review & stats analysis.' }
+  ];
+
+  const playerSchedules = activeRoster.map((p, idx) => {
+    const roleInfo = playerRoleCoverage[idx];
+    return {
+      playerId: p.id,
+      name: p.name,
+      teamName: p.teamName || 'Squad',
+      schedule: [
+        { timeSlot: `0:00 - 0:${prepDuration}`, stationName: 'Centre Pitch', role: 'Squad Member', activityTitle: 'Scenario Briefing', details: 'Warm-up & Targets' },
+        { timeSlot: `0:${prepDuration} - 0:${prepDuration + primaryScenarioDuration}`, stationName: 'Centre Wicket Pitch', role: roleInfo.role, activityTitle: scenario.name, details: `Position: ${roleInfo.position || 'Fielding Ring'}` },
+        { timeSlot: `0:${prepDuration + primaryScenarioDuration} - 0:${prepDuration + totalScenarioDuration}`, stationName: 'Centre Pitch & Outfield', role: 'Role Swap Position', activityTitle: 'Tactical Phase', details: `Focus: ${primaryTacticalFocus}` },
+        { timeSlot: `0:${prepDuration + totalScenarioDuration} - 0:${sessionDuration}`, stationName: 'Centre Pitch', role: 'Squad Member', activityTitle: 'Debrief', details: 'Post-Scenario Review' }
+      ]
+    };
+  });
+
   const totalElapsedTime = prepDuration + primaryScenarioDuration + secondaryScenarioDuration + cooldownDuration;
 
   return {
@@ -204,6 +243,8 @@ export function generateCentreWicketPlan({
       wicketkeeperName: keeperCandidate.name,
       battingOrder: activeRoster.map(p => p.name),
       playerRoleCoverage,
+      timeline,
+      playerSchedules,
       blocks,
       activities: flatActivities
     }

@@ -3,7 +3,7 @@ import { COHORTS } from '../config/cohorts';
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { searchActivities } from '../data/retrievalIndex';
 import { generateTrainingPlan, REJECTION_CODES } from '../engine/deterministicPlanner';
-import { generateNetsSessionPlan, calculateBattingCapacity } from '../engine/cricketNetsPlanner';
+import { generateNetsSessionPlan, calculateBattingCapacity, recalculateNetsPlanOnLateArrival } from '../engine/cricketNetsPlanner';
 import { generateCentreWicketPlan } from '../engine/centreWicketPlanner';
 import { createInitialMatchState, recordDelivery, undoLastDelivery, calculatePlayerStats } from '../engine/cricketMatchEngine';
 import { processUploadedRuleDocument, getEffectiveMatchDefinition } from '../services/competitionRulesEngine';
@@ -546,7 +546,7 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
       participantCount: 14 // 14 batters on 1 net over 40 usable mins = impossible for 1 turn each
     });
     expect(res.success).toBe(false);
-    expect(res.userMessage).toContain('not enough net time to give every batter one batting allocation');
+    expect(res.userMessage).toContain('cannot each receive');
   });
 
   it('51. Batting Allocation Summary contains every designated batter exactly once', () => {
@@ -634,5 +634,98 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(res.userMessage).toContain('requires at least 4 participants');
   });
 
+  // MULTI-TEAM & CLUB TRAINING PLANNER TESTS (Section 27 Requirements)
+  it('58. Supports Multi-Team / Club Training with 3 grades (28 players across 3 nets)', () => {
+    const mockTeams = [
+      { teamId: 't1', teamName: '1st XI', attendanceCount: 11 },
+      { teamId: 't2', teamName: '2nd XI', attendanceCount: 9 },
+      { teamId: 't3', teamName: '3rd XI', attendanceCount: 8 }
+    ];
+    const res = generateNetsSessionPlan({
+      trainingScope: 'CLUB_TRAINING',
+      teamsAttending: mockTeams,
+      numberOfNets: 3,
+      totalDuration: 90,
+      participantCount: 28,
+      openFieldAvailable: true
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.participantCount).toBe(28);
+    expect(res.plan.battingSummary.length).toBe(28);
+  });
+
+  it('59. Generates Dual-Purpose Net Objectives (Batter AND Bowler Focus per net)', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      batterFocuses: ['Front Foot Drive'],
+      bowlerFocuses: ['Pace Seam Control']
+    });
+    expect(res.success).toBe(true);
+    const net1 = res.plan.rotations[0].stations[0];
+    expect(net1.dualPurposeObjectives.batterObjective.focus).toBe('Front Foot Drive');
+    expect(net1.dualPurposeObjectives.bowlerObjective.focus).toBe('Pace Seam Control');
+    expect(net1.dualPurposeObjectives.batterObjective.coachingCues.length).toBeGreaterThan(0);
+  });
+
+  it('60. Generates Equitable Resource Allocation Summary by Team/Grade', () => {
+    const mockTeams = [
+      { teamId: 't1', teamName: '1st XI' },
+      { teamId: 't2', teamName: '2nd XI' }
+    ];
+    const res = generateNetsSessionPlan({
+      trainingScope: 'CLUB_TRAINING',
+      teamsAttending: mockTeams,
+      numberOfNets: 2,
+      participantCount: 10
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.teamAllocationSummary).toBeDefined();
+    expect(res.plan.teamAllocationSummary.length).toBe(2);
+  });
+
+  it('61. Generates Individual Player Schedules for every attending player', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 2,
+      participantCount: 10
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.playerSchedules.length).toBe(10);
+    expect(res.plan.playerSchedules[0].schedule.length).toBeGreaterThan(0);
+  });
+
+  it('62. Recalculates remaining plan on Late Arrival without duplicate turns', () => {
+    const initialRes = generateNetsSessionPlan({
+      numberOfNets: 2,
+      participantCount: 10
+    });
+    expect(initialRes.success).toBe(true);
+    const latePlayer = { id: 'p_late_99', name: 'Late Joiner', jersey: 99 };
+    const updated = recalculateNetsPlanOnLateArrival({
+      currentPlan: initialRes,
+      latePlayer
+    });
+    expect(updated.plan.participantCount).toBe(11);
+    expect(updated.plan.playerAllocations.find(p => p.playerId === 'p_late_99')).toBeDefined();
+  });
+
+  it('63. Validates 20-40 player club night sessions without player idling', () => {
+    const res = generateNetsSessionPlan({
+      numberOfNets: 4,
+      totalDuration: 120,
+      participantCount: 32,
+      openFieldAvailable: true
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.battingSummary.length).toBe(32);
+    res.plan.rotations.forEach(rot => {
+      rot.stations.forEach(st => {
+        if (st.type === 'NET_LANE') {
+          expect(st.batters.length + st.bowlers.length).toBeGreaterThan(0);
+        }
+      });
+    });
+  });
+
 });
+
 

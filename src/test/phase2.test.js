@@ -119,7 +119,7 @@ describe('Phase 2 - Training Planners Verification & Invariants', () => {
       requestedBattingMinutesPerPlayer: 15
     });
     expect(res.success).toBe(false);
-    expect(res.userMessage).toContain('not enough net time');
+    expect(res.userMessage).toContain('cannot each receive');
   });
 
 });
