@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { COHORTS } from '../config/cohorts';
 import { VENUE_MODELS, resolveFacilityCapabilities } from '../config/venues';
-import { ACTIVITY_CATEGORIES } from '../config/activityCategories';
+import { CENTRE_WICKET_SCENARIOS } from '../config/sessionTemplates';
 import { generateTrainingPlan, calculateBattingCapacity } from '../engine/deterministicPlanner';
 
 export default function TrainingLab({
@@ -17,8 +17,8 @@ export default function TrainingLab({
   // Checked-in Player IDs (Default to all roster members present)
   const [presentPlayerIds, setPresentPlayerIds] = useState(() => squad.map(p => p.id));
 
-  // Session Type State ('STANDARD_SESSION' | 'NETS_SESSION')
-  const [sessionType, setSessionType] = useState('STANDARD_SESSION');
+  // Training Type State ('NETS_SESSION' | 'CENTRE_WICKET_PRACTICE')
+  const [sessionType, setSessionType] = useState('NETS_SESSION');
 
   // Parameters State
   const [selectedCohort, setSelectedCohort] = useState('U13_JUNIOR');
@@ -29,20 +29,20 @@ export default function TrainingLab({
   const [hasNetLanes, setHasNetLanes] = useState(true);
   const [numberOfNets, setNumberOfNets] = useState(2);
   const [openFieldAvailable, setOpenFieldAvailable] = useState(true);
-  const [hasCentreWicket, setHasCentreWicket] = useState(false);
+  const [hasCentreWicket, setHasCentreWicket] = useState(true);
   const [hasIndoorArea, setHasIndoorArea] = useState(false);
   const [coachCount, setCoachCount] = useState(2);
   const [bowlingMachineAvailable, setBowlingMachineAvailable] = useState(false);
 
-  // Standard Multi-Select Focus Picker State
-  const [selectedFocusIds, setSelectedFocusIds] = useState(['Batting', 'Ground Fielding']);
-  const [focusToAdd, setFocusToAdd] = useState('');
-
-  // Separate Focus Pickers for Nets Session
-  const [batterFocuses, setBatterFocuses] = useState(['Batting']);
-  const [bowlerFocuses, setBowlerFocuses] = useState(['Pace Bowling']);
+  // Focus Pickers
+  const [batterFocuses, setBatterFocuses] = useState(['Front Foot Drive']);
+  const [bowlerFocuses, setBowlerFocuses] = useState(['Pace Seam Control']);
   const [fieldingFocuses, setFieldingFocuses] = useState(['Ground Fielding']);
+  const [tacticalFocuses, setTacticalFocuses] = useState(['Defending Short Boundary']);
   const [requestedBattingMins, setRequestedBattingMins] = useState('');
+
+  // Centre Wicket Scenario State
+  const [scenarioObjective, setScenarioObjective] = useState('DEATH_OVERS');
 
   // Generated Plan & Diagnostics State
   const [activePlan, setActivePlan] = useState(null);
@@ -63,7 +63,7 @@ export default function TrainingLab({
     setFailureDiagnostics(null);
   };
 
-  // Handle Venue Dropdown Selection (Auto-populates feature defaults)
+  // Handle Venue Dropdown Selection
   const handleVenueChange = (vId) => {
     setSelectedVenue(vId);
     const caps = resolveFacilityCapabilities(vId);
@@ -74,22 +74,6 @@ export default function TrainingLab({
     setHasIndoorArea(caps.hasIndoorArea);
     clearDiagnostics();
   };
-
-  // Add/Remove Focus Handlers
-  const handleAddStandardFocus = (focusName) => {
-    if (focusName && !selectedFocusIds.includes(focusName)) {
-      setSelectedFocusIds(prev => [...prev, focusName]);
-    }
-    setFocusToAdd('');
-    clearDiagnostics();
-  };
-
-  const handleRemoveStandardFocus = (focusName) => {
-    setSelectedFocusIds(prev => prev.filter(f => f !== focusName));
-    clearDiagnostics();
-  };
-
-  const availableUnselectedFocuses = ACTIVITY_CATEGORIES.filter(cat => !selectedFocusIds.includes(cat));
 
   // Live Batting Capacity Recommendation
   const netCapacity = calculateBattingCapacity({
@@ -114,7 +98,7 @@ export default function TrainingLab({
       sessionType,
       requestedDuration: duration,
       cohortId: selectedCohort,
-      selectedFocusIds,
+      scenarioObjective,
       numberOfNets,
       coachCount,
       bowlingMachineAvailable,
@@ -123,7 +107,8 @@ export default function TrainingLab({
       batterFocuses,
       bowlerFocuses,
       fieldingFocuses,
-      squad,
+      tacticalFocuses,
+      squad: squad.filter(p => presentPlayerIds.includes(p.id)),
       requestedBattingMinutesPerPlayer: requestedBattingMins ? Number(requestedBattingMins) : null,
       coachLevelId: selectedCoachLevel,
       venueId: selectedVenue,
@@ -153,8 +138,6 @@ export default function TrainingLab({
       setHasNetLanes(true);
     } else if (suggestion.type === 'CHANGE_DURATION' && suggestion.targetDuration) {
       setDuration(suggestion.targetDuration);
-    } else if (suggestion.type === 'REMOVE_FOCUS' && suggestion.targetFocus) {
-      setSelectedFocusIds(prev => prev.filter(f => f !== suggestion.targetFocus));
     } else if (suggestion.type === 'ADD_ATTENDANCE') {
       setPresentPlayerIds(squad.map(p => p.id));
     }
@@ -242,29 +225,18 @@ export default function TrainingLab({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '640px' }}>
           <div>
             <h2 className="scoreboard-font" style={{ color: 'var(--color-training)', margin: 0 }}>
-              Step 2: Session Parameters & Available Facilities
+              Step 2: Session Parameters
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              Select session type, facility capabilities, net availability, and tactical focus priorities.
+              Select training type, scenario goals, net lane configuration, and focus priorities.
             </p>
           </div>
 
-          {/* Session Type Selector */}
+          {/* Training Type Selector (Section 6 UI Requirement) */}
           <div className="form-group" style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
-            <label style={{ color: 'var(--color-training)', marginBottom: '8px' }}>Session Template Architecture</label>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
-                <input 
-                  type="radio" 
-                  name="sessionType" 
-                  value="STANDARD_SESSION" 
-                  checked={sessionType === 'STANDARD_SESSION'} 
-                  onChange={() => { setSessionType('STANDARD_SESSION'); clearDiagnostics(); }} 
-                />
-                <span>Standard Team Training (Flexible Phases)</span>
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
+            <label style={{ color: 'var(--color-training)', marginBottom: '8px', fontWeight: '700' }}>Training Type</label>
+            <div style={{ display: 'flex', gap: '20px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem' }}>
                 <input 
                   type="radio" 
                   name="sessionType" 
@@ -272,7 +244,18 @@ export default function TrainingLab({
                   checked={sessionType === 'NETS_SESSION'} 
                   onChange={() => { setSessionType('NETS_SESSION'); clearDiagnostics(); }} 
                 />
-                <span>🏏 Cricket Nets Rotation Session</span>
+                <span>🏏 Nets Session</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem' }}>
+                <input 
+                  type="radio" 
+                  name="sessionType" 
+                  value="CENTRE_WICKET_PRACTICE" 
+                  checked={sessionType === 'CENTRE_WICKET_PRACTICE'} 
+                  onChange={() => { setSessionType('CENTRE_WICKET_PRACTICE'); clearDiagnostics(); }} 
+                />
+                <span>🏟️ Centre Wicket Practice</span>
               </label>
             </div>
           </div>
@@ -317,57 +300,38 @@ export default function TrainingLab({
             </div>
           )}
 
-          {/* COMBINED FACILITY & VENUE CONFIGURATION */}
-          <div className="form-group" style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
-            <label htmlFor="param-venue" style={{ color: 'var(--color-training)' }}>Training Facility Base Location</label>
-            <select id="param-venue" value={selectedVenue} onChange={(e) => handleVenueChange(e.target.value)}>
-              {VENUE_MODELS.map(v => (
-                <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </select>
-
-            <div style={{ marginTop: '14px' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-primary)' }}>Available Facility Features Today:</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '8px', fontSize: '0.85rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={hasNetLanes} onChange={(e) => { setHasNetLanes(e.target.checked); clearDiagnostics(); }} />
-                  <span>☑ Net Lanes Enclosure</span>
-                </label>
-
-                {hasNetLanes && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <label htmlFor="param-nets-count" style={{ fontSize: '0.8rem' }}>Lanes:</label>
-                    <input id="param-nets-count" type="number" min="1" max="4" value={numberOfNets} onChange={(e) => { setNumberOfNets(Number(e.target.value)); clearDiagnostics(); }} style={{ width: '60px', padding: '4px 8px' }} />
-                  </div>
-                )}
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={openFieldAvailable} onChange={(e) => { setOpenFieldAvailable(e.target.checked); clearDiagnostics(); }} />
-                  <span>☑ Full / Open Field Space</span>
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={hasCentreWicket} onChange={(e) => { setHasCentreWicket(e.target.checked); clearDiagnostics(); }} />
-                  <span>☐ Centre Wicket Pitch</span>
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={hasIndoorArea} onChange={(e) => { setHasIndoorArea(e.target.checked); clearDiagnostics(); }} />
-                  <span>☐ Indoor Fielding Area</span>
-                </label>
-              </div>
-            </div>
-          </div>
-
           {/* NETS SESSION PARAMETERS */}
           {sessionType === 'NETS_SESSION' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="form-group" style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
+                <label htmlFor="param-venue" style={{ color: 'var(--color-training)' }}>Training Facility Base Location</label>
+                <select id="param-venue" value={selectedVenue} onChange={(e) => handleVenueChange(e.target.value)}>
+                  {VENUE_MODELS.map(v => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="form-group">
+                  <label htmlFor="param-nets">Available Net Lanes</label>
+                  <input id="param-nets" type="number" min="1" max="4" value={numberOfNets} onChange={(e) => { setNumberOfNets(Number(e.target.value)); clearDiagnostics(); }} />
+                </div>
                 <div className="form-group">
                   <label htmlFor="param-coaches">Available Coaches</label>
                   <input id="param-coaches" type="number" min="1" max="5" value={coachCount} onChange={(e) => { setCoachCount(Number(e.target.value)); clearDiagnostics(); }} />
                 </div>
+              </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="form-group">
+                  <label htmlFor="param-cohort">Participant Cohort</label>
+                  <select id="param-cohort" value={selectedCohort} onChange={(e) => { setSelectedCohort(e.target.value); clearDiagnostics(); }}>
+                    {Object.values(COHORTS).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="form-group">
                   <label htmlFor="param-duration-nets">Total Session Duration (Mins)</label>
                   <input id="param-duration-nets" type="number" min="30" max="120" value={duration} onChange={(e) => { setDuration(Number(e.target.value)); clearDiagnostics(); }} />
@@ -375,6 +339,10 @@ export default function TrainingLab({
               </div>
 
               <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={openFieldAvailable} onChange={(e) => { setOpenFieldAvailable(e.target.checked); clearDiagnostics(); }} />
+                  <span>Off-Net Fielding Space Available</span>
+                </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                   <input type="checkbox" checked={bowlingMachineAvailable} onChange={(e) => { setBowlingMachineAvailable(e.target.checked); clearDiagnostics(); }} />
                   <span>Bowling Machine Available</span>
@@ -437,12 +405,26 @@ export default function TrainingLab({
               </div>
             </div>
           ) : (
-            /* STANDARD SESSION PARAMETERS */
+            /* CENTRE WICKET PRACTICE PARAMETERS */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="form-group">
+                <label htmlFor="param-scenario" style={{ color: 'var(--color-training)', fontWeight: '700' }}>
+                  🏟️ Match / Scenario Objective
+                </label>
+                <select id="param-scenario" value={scenarioObjective} onChange={(e) => { setScenarioObjective(e.target.value); clearDiagnostics(); }}>
+                  {CENTRE_WICKET_SCENARIOS.map(sc => (
+                    <option key={sc.id} value={sc.id}>{sc.name}</option>
+                  ))}
+                </select>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  {CENTRE_WICKET_SCENARIOS.find(s => s.id === scenarioObjective)?.description}
+                </p>
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="form-group">
-                  <label htmlFor="param-cohort">Participant Cohort</label>
-                  <select id="param-cohort" value={selectedCohort} onChange={(e) => { setSelectedCohort(e.target.value); clearDiagnostics(); }}>
+                  <label htmlFor="param-cohort-cw">Participant Cohort</label>
+                  <select id="param-cohort-cw" value={selectedCohort} onChange={(e) => { setSelectedCohort(e.target.value); clearDiagnostics(); }}>
                     {Object.values(COHORTS).map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
@@ -450,61 +432,38 @@ export default function TrainingLab({
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="param-duration-std">Session Duration (Mins)</label>
-                  <input id="param-duration-std" type="number" min="30" max="120" value={duration} onChange={(e) => { setDuration(Number(e.target.value)); clearDiagnostics(); }} />
+                  <label htmlFor="param-duration-cw">Total Session Duration (Mins)</label>
+                  <input id="param-duration-cw" type="number" min="30" max="120" value={duration} onChange={(e) => { setDuration(Number(e.target.value)); clearDiagnostics(); }} />
                 </div>
               </div>
 
-              {/* Standard Session Multi-Select Focus Picker */}
-              <div className="form-group" style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
-                <label style={{ color: 'var(--color-training)', marginBottom: '8px' }}>
-                  Tactical / Technical Focus Priorities ({selectedFocusIds.length} Selected)
-                </label>
-                
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                  {selectedFocusIds.map(fId => (
-                    <span 
-                      key={fId}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 12px',
-                        borderRadius: '20px',
-                        backgroundColor: 'var(--color-training-glow)',
-                        border: '1px solid var(--color-training)',
-                        color: 'var(--text-primary)',
-                        fontSize: '0.85rem',
-                        fontWeight: '600'
-                      }}
-                    >
-                      🎯 {fId}
-                      <button 
-                        type="button" 
-                        onClick={() => handleRemoveStandardFocus(fId)}
-                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', padding: '0 2px' }}
-                        aria-label={`Remove ${fId}`}
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="form-group">
+                  <label htmlFor="param-cw-batter-focus" style={{ color: 'var(--color-match)' }}>🎯 Batting Group Focus</label>
+                  <select id="param-cw-batter-focus" value={batterFocuses[0]} onChange={(e) => { setBatterFocuses([e.target.value]); clearDiagnostics(); }}>
+                    <option value="Front Foot Drive">Front Foot Drive & Gap Placement</option>
+                    <option value="Death Overs Power Hitting">Boundary Clearing & Power Hitting</option>
+                    <option value="Spin Footwork Sweep">Spin Footwork & Sweep</option>
+                    <option value="Calling & Communication">Strike Rotation & Quick Singles</option>
+                  </select>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <select 
-                    id="param-add-focus"
-                    value={focusToAdd}
-                    onChange={(e) => {
-                      setFocusToAdd(e.target.value);
-                      if (e.target.value) handleAddStandardFocus(e.target.value);
-                    }}
-                    style={{ flex: 1, fontSize: '0.85rem' }}
-                  >
-                    <option value="">+ Add Training Focus Priority...</option>
-                    {availableUnselectedFocuses.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
+                <div className="form-group">
+                  <label htmlFor="param-cw-bowler-focus" style={{ color: 'var(--color-tactics)' }}>🎯 Bowling Group Focus</label>
+                  <select id="param-cw-bowler-focus" value={bowlerFocuses[0]} onChange={(e) => { setBowlerFocuses([e.target.value]); clearDiagnostics(); }}>
+                    <option value="Death Yorker Execution">Death Yorker & Change-of-Pace Execution</option>
+                    <option value="Pace Seam Control">New Ball Seam Control & Channel Line</option>
+                    <option value="Spin Dip & Drift">Middle Overs Spin Dip & Drift</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="param-cw-tactical-focus" style={{ color: 'var(--color-training)' }}>🎯 Tactical Focus</label>
+                  <select id="param-cw-tactical-focus" value={tacticalFocuses[0]} onChange={(e) => { setTacticalFocuses([e.target.value]); clearDiagnostics(); }}>
+                    <option value="Defending Short Boundary">Defending Short Boundary Ring</option>
+                    <option value="Executing Under High Pressure">Executing Under High Pressure</option>
+                    <option value="Field Placement Awareness">Tactical Field Setting Awareness</option>
+                    <option value="Denying Dot Balls">Denying Singles in Powerplay</option>
                   </select>
                 </div>
               </div>
@@ -523,7 +482,7 @@ export default function TrainingLab({
         </div>
       )}
 
-      {/* Step 3: Review & Replace Drills View */}
+      {/* Step 3: Review View */}
       {step === 'review' && activePlan && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -532,7 +491,7 @@ export default function TrainingLab({
                 {activePlan.templateName} ({activePlan.totalElapsedTime} Mins)
               </h2>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Deterministic plan validated for {presentPlayerIds.length} players across active facility features.
+                Validated for {presentPlayerIds.length} players.
               </p>
             </div>
 
@@ -546,13 +505,13 @@ export default function TrainingLab({
             </div>
           </div>
 
-          {/* Render Plan Structure (Phases / Net Rotations) */}
+          {/* Render Plan Structure */}
           {activePlan.sessionType === 'NETS_SESSION' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ padding: '12px 16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '10px', fontSize: '0.85rem' }}>
-                <strong>Single-Turn Batting Allocation Summary ({activePlan.battingSummary.length} Batters):</strong>
+                <strong>Single-Turn Batting Allocation Summary ({activePlan.battingSummary?.length || 0} Batters):</strong>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px', marginTop: '8px' }}>
-                  {activePlan.battingSummary.map((b, idx) => (
+                  {activePlan.battingSummary?.map((b, idx) => (
                     <div key={idx} style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', fontSize: '0.8rem' }}>
                       👤 <strong>{b.name}</strong>: {b.allocatedMinutes}m in {b.netName} (Rot {b.rotationNumber})
                     </div>
@@ -560,7 +519,7 @@ export default function TrainingLab({
                 </div>
               </div>
 
-              {activePlan.rotations.map((rot, rIdx) => (
+              {activePlan.rotations?.map((rot, rIdx) => (
                 <div key={rIdx} style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
                   <h4 style={{ color: 'var(--color-training)', margin: '0 0 10px 0' }}>
                     Rotation {rot.rotationNumber} ({rot.duration} Mins)
@@ -575,11 +534,6 @@ export default function TrainingLab({
                           <>
                             <div>🏏 <strong>Batters:</strong> {st.batters.join(', ') || 'None'} ({st.batterFocus})</div>
                             <div>⚾ <strong>Bowlers:</strong> {st.bowlers.join(', ') || 'Target Machine'} ({st.bowlerFocus})</div>
-                            {st.secondaryActivity && (
-                              <div style={{ marginTop: '4px', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
-                                📌 Secondary Activity: {st.secondaryActivity.title}
-                              </div>
-                            )}
                           </>
                         ) : (
                           <div>🛡️ <strong>Fielders:</strong> {st.players.join(', ')} ({st.fieldingFocus})</div>
@@ -591,8 +545,48 @@ export default function TrainingLab({
               ))}
             </div>
           ) : (
+            /* CENTRE WICKET REVIEW DISPLAY */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {activePlan.blocks.map((block, bIdx) => (
+              <div style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--color-training)', borderRadius: '12px' }}>
+                <h3 style={{ margin: '0 0 6px 0', color: 'var(--color-training)' }}>
+                  🏟️ {activePlan.scenarioTitle}
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  {activePlan.scenarioDescription}
+                </p>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '12px', fontSize: '0.8rem' }}>
+                  <span className="badge" style={{ background: 'var(--color-training-glow)', color: 'var(--color-training)' }}>
+                    🎯 Batting: {activePlan.primaryBattingFocus}
+                  </span>
+                  <span className="badge" style={{ background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>
+                    🎯 Bowling: {activePlan.primaryBowlingFocus}
+                  </span>
+                  <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>
+                    🎯 Tactical: {activePlan.primaryTacticalFocus}
+                  </span>
+                </div>
+              </div>
+
+              {/* Player Live Role Coverage Matrix */}
+              <div style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
+                <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-primary)' }}>
+                  Live Player Role Assignment Matrix ({activePlan.playerRoleCoverage?.length || 0} Players)
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
+                  {activePlan.playerRoleCoverage?.map((pr, idx) => (
+                    <div key={idx} style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-light)', borderRadius: '8px', fontSize: '0.8rem' }}>
+                      👤 <strong>#{pr.jersey} {pr.name}</strong>
+                      <div style={{ color: 'var(--color-training)', fontWeight: '600', marginTop: '2px' }}>
+                        {pr.role} {pr.position ? `(${pr.position})` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Scenario Phase Blocks */}
+              {activePlan.blocks?.map((block, bIdx) => (
                 <div key={bIdx} style={{ padding: '16px', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '12px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <h3 className="scoreboard-font" style={{ margin: 0, color: 'var(--color-training)' }}>
@@ -601,31 +595,16 @@ export default function TrainingLab({
                     <span className="badge">{block.type}</span>
                   </div>
 
-                  {block.type === 'CONCURRENT_STATIONS' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px' }}>
-                      {block.stations.map((st, sIdx) => (
-                        <div key={sIdx} style={{ padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
-                          <h4 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-                            Station {st.stationNumber}: {st.title}
-                          </h4>
-                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
-                            Category: {st.activityCategory} | Focus: 🎯 {st.contributingFocus}
-                          </p>
-                        </div>
-                      ))}
+                  {block.activities?.map((act, aIdx) => (
+                    <div key={aIdx} style={{ padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
+                      <h4 style={{ margin: '0 0 4px 0', fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                        {act.title}
+                      </h4>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                        Category: {act.activityCategory} | Focus: 🎯 {act.contributingFocus}
+                      </p>
                     </div>
-                  ) : (
-                    block.activities?.map((act, aIdx) => (
-                      <div key={aIdx} style={{ padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px' }}>
-                        <h4 style={{ margin: '0 0 4px 0', fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-                          {act.title}
-                        </h4>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
-                          Category: {act.activityCategory} | Focus: 🎯 {act.contributingFocus}
-                        </p>
-                      </div>
-                    ))
-                  )}
+                  ))}
                 </div>
               ))}
             </div>
@@ -642,7 +621,7 @@ export default function TrainingLab({
                 Active Guided Coaching — {activePlan.templateName}
               </h2>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Real-time phase tracking and late arrival management.
+                Real-time scenario tracking and late arrival management.
               </p>
             </div>
 

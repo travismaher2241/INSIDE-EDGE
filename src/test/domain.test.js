@@ -4,6 +4,7 @@ import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { searchActivities } from '../data/retrievalIndex';
 import { generateTrainingPlan, REJECTION_CODES } from '../engine/deterministicPlanner';
 import { generateNetsSessionPlan, calculateBattingCapacity } from '../engine/cricketNetsPlanner';
+import { generateCentreWicketPlan } from '../engine/centreWicketPlanner';
 import { createInitialMatchState, recordDelivery, undoLastDelivery, calculatePlayerStats } from '../engine/cricketMatchEngine';
 import { processUploadedRuleDocument, getEffectiveMatchDefinition } from '../services/competitionRulesEngine';
 import { processVideoImport } from '../services/videoImportPipeline';
@@ -561,4 +562,77 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     expect(summaryPlayerIds.length).toBe(uniqueSummary.size);
   });
 
+  // CENTRE WICKET PRACTICE ARCHITECTURE TESTS
+  it('52. Generates Centre Wicket Practice session with live player role coverage', () => {
+    const res = generateCentreWicketPlan({
+      totalDuration: 90,
+      participantCount: 11,
+      scenarioObjective: 'DEATH_OVERS'
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.sessionType).toBe('CENTRE_WICKET_PRACTICE');
+    expect(res.plan.playerRoleCoverage.length).toBe(11);
+  });
+
+  it('53. Assigns striker, non-striker, wicketkeeper, and fielding group positions', () => {
+    const res = generateCentreWicketPlan({
+      totalDuration: 90,
+      participantCount: 11,
+      scenarioObjective: 'NEW_BALL_PHASE'
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.strikerName).toBeDefined();
+    expect(res.plan.nonStrikerName).toBeDefined();
+    expect(res.plan.wicketkeeperName).toBeDefined();
+    const fielders = res.plan.playerRoleCoverage.filter(p => p.role.includes('Fielder'));
+    expect(fielders.length).toBeGreaterThan(0);
+    expect(fielders[0].position).toBeDefined();
+  });
+
+  it('54. Assigns bowling rotation pool to respect workload limits', () => {
+    const res = generateCentreWicketPlan({
+      totalDuration: 90,
+      participantCount: 12,
+      scenarioObjective: 'MIDDLE_OVERS'
+    });
+    expect(res.success).toBe(true);
+    const bowlers = res.plan.playerRoleCoverage.filter(p => p.role.includes('Bowler'));
+    expect(bowlers.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('55. Persists selected scenario objective and tactical focus', () => {
+    const res = generateCentreWicketPlan({
+      totalDuration: 90,
+      participantCount: 11,
+      scenarioObjective: 'CHASE_SCENARIO',
+      tacticalFocuses: ['Executing Under High Pressure']
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.scenarioObjective).toBe('CHASE_SCENARIO');
+    expect(res.plan.primaryTacticalFocus).toBe('Executing Under High Pressure');
+  });
+
+  it('56. Does NOT depend on net-lane logic or net count parameters', () => {
+    const res = generateCentreWicketPlan({
+      totalDuration: 90,
+      participantCount: 11,
+      scenarioObjective: 'DEFEND_TOTAL'
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.numberOfNets).toBeUndefined();
+    expect(res.plan.rotations).toBeUndefined();
+    expect(res.plan.battingQueue).toBeUndefined();
+  });
+
+  it('57. Fails gracefully when participant attendance is fewer than 4 players', () => {
+    const res = generateCentreWicketPlan({
+      totalDuration: 90,
+      participantCount: 3,
+      scenarioObjective: 'DEATH_OVERS'
+    });
+    expect(res.success).toBe(false);
+    expect(res.userMessage).toContain('requires at least 4 participants');
+  });
+
 });
+

@@ -3,27 +3,32 @@ import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { REJECTION_CODES } from '../config/rejectionCodes';
 import { resolveFacilityCapabilities } from '../config/venues';
 import { generateNetsSessionPlan, calculateBattingCapacity } from './cricketNetsPlanner';
+import { generateCentreWicketPlan } from './centreWicketPlanner';
 
-export { calculateBattingCapacity, REJECTION_CODES };
+export { calculateBattingCapacity, REJECTION_CODES, generateNetsSessionPlan, generateCentreWicketPlan };
 
 /**
  * Unified Deterministic Training Planner Entry Point
+ * Routes generation to NetsSessionPlanner, CentreWicketPlanner, or Standard Phase Engine
  */
-export function generateTrainingPlan(params) {
-  const { sessionType = 'STANDARD_SESSION' } = params;
+export function generateTrainingPlan(params = {}) {
+  const { sessionType } = params;
 
   if (sessionType === 'NETS_SESSION') {
     return generateNetsSessionPlan(params);
   }
 
-  return generateStandardTrainingPlan(params);
+  if (sessionType === 'CENTRE_WICKET_PRACTICE') {
+    return generateCentreWicketPlan(params);
+  }
+
+  return _generateStandardTrainingPlan(params);
 }
 
 /**
- * Standard Session Template Planner Engine
- * Flexible Phase-Based Architecture supporting Whole-Group, Concurrent Groups, and Rotating Stations
+ * Flexible Phase-Based Standard Session Engine
  */
-function generateStandardTrainingPlan({
+function _generateStandardTrainingPlan({
   requestedDuration = 90,
   cohortId = 'U13_JUNIOR',
   selectedFocusIds = ['Batting'],
@@ -49,12 +54,20 @@ function generateStandardTrainingPlan({
     ? SESSION_TEMPLATES.EXPRESS_60_MIN 
     : SESSION_TEMPLATES.STANDARD_90_MIN;
 
-  const durationScaleFactor = requestedDuration / template.totalDuration;
+  const durationScaleFactor = requestedDuration / (template ? template.totalDuration : 90);
 
   const populatedPhases = [];
   const usedActivityIds = new Set();
   const allRejections = [];
   const failedPhases = [];
+
+  if (!template) {
+    return {
+      success: false,
+      userMessage: `Unable to generate a valid ${requestedDuration}-minute training session.`,
+      primaryReasons: ['No suitable session template found.']
+    };
+  }
 
   for (const phaseDef of template.phases) {
     if (phaseDef.phaseId === 'p_prep') {
@@ -62,7 +75,7 @@ function generateStandardTrainingPlan({
         slotType: 'Warm-up',
         cohortId,
         selectedFocusIds,
-        coachLevelId,
+        _coachLevelId: coachLevelId,
         facilityCapabilities,
         equipmentAvailable,
         participantCount,
@@ -103,7 +116,6 @@ function generateStandardTrainingPlan({
       let devPhaseSuccess = false;
       let devPhasePopulated = null;
 
-      // Try structural options in order of richness:
       for (const structOpt of phaseDef.structuralOptions) {
         if (structOpt.type === 'CONCURRENT_GROUPS') {
           const stationsCount = structOpt.stationCount || 2;
@@ -118,7 +130,7 @@ function generateStandardTrainingPlan({
               slotType: 'Development',
               cohortId,
               selectedFocusIds: [targetFocus],
-              coachLevelId,
+              _coachLevelId: coachLevelId,
               facilityCapabilities,
               equipmentAvailable,
               participantCount: effectiveStationParticipants,
@@ -170,7 +182,7 @@ function generateStandardTrainingPlan({
               slotType: 'Development',
               cohortId,
               selectedFocusIds: [targetFocus],
-              coachLevelId,
+              _coachLevelId: coachLevelId,
               facilityCapabilities,
               equipmentAvailable,
               participantCount,
@@ -214,7 +226,7 @@ function generateStandardTrainingPlan({
             slotType: 'Development',
             cohortId,
             selectedFocusIds,
-            coachLevelId,
+            _coachLevelId: coachLevelId,
             facilityCapabilities,
             equipmentAvailable,
             participantCount,
@@ -262,7 +274,7 @@ function generateStandardTrainingPlan({
         slotType: 'Game-Based Scenario',
         cohortId,
         selectedFocusIds,
-        coachLevelId,
+        _coachLevelId: coachLevelId,
         facilityCapabilities,
         equipmentAvailable,
         participantCount,
@@ -304,7 +316,7 @@ function generateStandardTrainingPlan({
         slotType: 'Warm-down',
         cohortId,
         selectedFocusIds,
-        coachLevelId,
+        _coachLevelId: coachLevelId,
         facilityCapabilities,
         equipmentAvailable,
         participantCount,
@@ -335,7 +347,7 @@ function generateStandardTrainingPlan({
   const focusCoverage = analyzeFocusCoverage({
     selectedFocusIds,
     cohortId,
-    coachLevelId,
+    _coachLevelId: coachLevelId,
     facilityCapabilities,
     equipmentAvailable,
     participantCount,
@@ -358,14 +370,14 @@ function generateStandardTrainingPlan({
 
     const suggestions = generateActionableSuggestions({
       facilityCapabilities,
-      selectedFocusIds,
+      _selectedFocusIds: selectedFocusIds,
       focusCoverage,
-      participantCount,
-      cohortId,
-      coachLevelId,
+      _participantCount: participantCount,
+      _cohortId: cohortId,
+      _coachLevelId: coachLevelId,
       requestedDuration,
       rejectionSummary,
-      activeRuleset
+      _activeRuleset: activeRuleset
     });
 
     return {
@@ -376,7 +388,7 @@ function generateStandardTrainingPlan({
       rejectionSummary,
       primaryReasons,
       suggestedChanges: suggestions,
-      userMessage: `Unable to generate a valid ${requestedDuration}-minute standard training session with current facility and parameter settings.`,
+      userMessage: `Unable to generate a valid ${requestedDuration}-minute training session with current facility and parameter settings.`,
       technicalDetails: allRejections
     };
   }
@@ -491,7 +503,6 @@ function evaluateCandidatesForSlot({
       return;
     }
 
-    // Facility capabilities verification
     if (facilityCapabilities && act.venueRequirements && act.venueRequirements.length > 0) {
       const requiresNets = act.venueRequirements.some(v => v.includes('NET'));
       const requiresOpenField = act.venueRequirements.some(v => v.includes('OVAL') || v.includes('FIELD') || v === 'COMBINED_FACILITY') && !act.venueRequirements.includes('NET_LANES_TURF') && !act.venueRequirements.includes('NET_LANES_SYNTHETIC');
@@ -736,7 +747,6 @@ function generateActionableSuggestions({
     });
   });
 
-  // Only suggest duration change if duration is genuinely the root issue
   const hasDurationRejection = rejectionSummary.some(r => r.code === REJECTION_CODES.DURATION_TOO_LONG || r.code === REJECTION_CODES.DURATION_TOO_SHORT);
   if (hasDurationRejection && requestedDuration > 60) {
     suggestions.push({
