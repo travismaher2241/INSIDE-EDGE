@@ -726,6 +726,40 @@ describe('Inside Edge - Comprehensive Domain Test Suite', () => {
     });
   });
 
-});
+  it('64. Audit generated 39-player 3-team 3-nets session for zero empty batter objective displays', () => {
+    const mockTeams = [
+      { teamId: 't1', teamName: '1st XI', attendanceCount: 15 },
+      { teamId: 't2', teamName: '2nd XI', attendanceCount: 12 },
+      { teamId: 't3', teamName: '3rd XI', attendanceCount: 12 }
+    ];
+    const res = generateNetsSessionPlan({
+      trainingScope: 'CLUB_TRAINING',
+      teamsAttending: mockTeams,
+      numberOfNets: 3,
+      totalDuration: 90,
+      participantCount: 39,
+      openFieldAvailable: true
+    });
+    expect(res.success).toBe(true);
+    expect(res.plan.participantCount).toBe(39);
+    expect(res.plan.battingSummary.length).toBe(39);
 
+    // Section 8 Audit: Check every net station presentation
+    res.plan.rotations.forEach(rot => {
+      rot.stations.forEach(st => {
+        if (st.type === 'NET_LANE') {
+          if (st.batters.length === 0) {
+            expect(st.hasBatters).toBe(false);
+            expect(st.dualPurposeObjectives.batterObjective).toBeUndefined();
+            expect(st.name).toContain('Bowling Target Station');
+          } else {
+            expect(st.hasBatters).toBe(true);
+            expect(st.dualPurposeObjectives.batterObjective).toBeDefined();
+          }
+        }
+      });
+    });
+  });
+
+});
 

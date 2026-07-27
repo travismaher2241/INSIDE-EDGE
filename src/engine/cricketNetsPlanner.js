@@ -305,14 +305,16 @@ export function generateNetsSessionPlan({
       });
 
       const keeper = bowlerPids.length >= 2 ? playerMap.get(bowlerPids[bowlerPids.length - 1])?.name : null;
+      const isBowlingOnlyStation = batters.length === 0;
 
-      // Dual-Purpose Net Station Objectives (Section 9 Requirement)
       const dualPurposeObjectives = {
-        batterObjective: {
-          focus: primaryBatterFocus,
-          coachingCues: [`Focus on ${primaryBatterFocus}`, 'High front elbow & head over contact line', 'Late ball sight'],
-          successIndicators: ['Clean contact into V-Channel', 'Zero edges to slip cordon']
-        },
+        ...(isBowlingOnlyStation ? {} : {
+          batterObjective: {
+            focus: primaryBatterFocus,
+            coachingCues: [`Focus on ${primaryBatterFocus}`, 'High front elbow & head over contact line', 'Late ball sight'],
+            successIndicators: ['Clean contact into V-Channel', 'Zero edges to slip cordon']
+          }
+        }),
         bowlerObjective: {
           focus: primaryBowlerFocus,
           coachingCues: [`Focus on ${primaryBowlerFocus}`, 'Upright seam & tight wrist release', 'Repeatable 4th stump line'],
@@ -322,9 +324,10 @@ export function generateNetsSessionPlan({
 
       stations.push({
         stationId: `net_${nIdx + 1}`,
-        name: `Net ${nIdx + 1}`,
+        name: isBowlingOnlyStation ? `Net ${nIdx + 1} (Bowling Target Station)` : `Net ${nIdx + 1}`,
         type: 'NET_LANE',
-        batterFocus: primaryBatterFocus,
+        hasBatters: !isBowlingOnlyStation,
+        batterFocus: isBowlingOnlyStation ? null : primaryBatterFocus,
         bowlerFocus: primaryBowlerFocus,
         assignedGroup: assignedGroup.groupId,
         batters,
