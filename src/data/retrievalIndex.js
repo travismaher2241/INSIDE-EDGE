@@ -4,7 +4,7 @@ import { STRUCTURED_ACTIVITIES } from './structuredActivityRecords';
  * Retrieval & Indexing Layer for Deterministic Planner Querying
  * Supports Multi-Select Focus Pickers (`selectedFocusIds: string[]`)
  */
-export function searchActivities({ cohortId, focus, selectedFocusIds = [], coachLevelId, maxParticipants }) {
+export function searchActivities({ cohortId, focus, selectedFocusIds = [], _coachLevelId, maxParticipants }) {
   const targetFocuses = (selectedFocusIds && selectedFocusIds.length > 0)
     ? selectedFocusIds
     : (focus && focus !== 'All Round' ? [focus] : []);

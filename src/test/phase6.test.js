@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { processVideoImport, revokeVideoObjectUrl } from '../services/videoImportPipeline';
-import { saveVideoBlob, getVideoBlob, deleteVideoBlob } from '../services/dbStorage';
 
 describe('Phase 6 - Video & IndexedDB Storage', () => {
 
@@ -11,7 +10,6 @@ describe('Phase 6 - Video & IndexedDB Storage', () => {
   });
 
   it('2. Imports valid MP4 video and creates structured clip record', async () => {
-    // Mock Blob and URL.createObjectURL for test environment
     const fakeBlob = new Blob(['fake video data'], { type: 'video/mp4' });
     fakeBlob.name = 'match_highlight.mp4';
 

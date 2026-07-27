@@ -3,7 +3,7 @@ import { processVideoImport, revokeVideoObjectUrl } from '../services/videoImpor
 import { getVideoBlob, deleteVideoBlob } from '../services/dbStorage';
 
 export default function VideoAnalyser({
-  squad = [],
+  _squad = [],
   videoClips = [],
   setVideoClips,
   activeRuleset

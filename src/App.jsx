@@ -1,17 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
 import AuthScreen from './screens/AuthScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
-import SquadHub from './components/SquadHub';
-import TrainingLab from './components/TrainingLab';
-import TacticsBoard from './components/TacticsBoard';
-import MatchDay from './components/MatchDay';
-import VideoAnalyser from './components/VideoAnalyser';
 import SettingsModal from './components/SettingsModal';
 import LocalRulesReviewModal from './components/LocalRulesReviewModal';
 import { DEFAULT_ROSTER } from './data/defaultRoster';
 import { getEffectiveMatchDefinition } from './services/competitionRulesEngine';
-import { getSyncQueue, saveSyncQueue, queueSyncTransaction, clearSyncQueue } from './services/syncService';
+import { getSyncQueue, queueSyncTransaction, clearSyncQueue } from './services/syncService';
 import { 
   safeStorageGet, 
   safeStorageSet, 
@@ -20,6 +15,13 @@ import {
   unmaskRosterFromStorage,
   clearAllLocalApplicationData 
 } from './services/storage';
+
+// Lazy Loaded Feature Tab Components for Code Splitting & Performance
+const SquadHub = lazy(() => import('./components/SquadHub'));
+const TrainingLab = lazy(() => import('./components/TrainingLab'));
+const TacticsBoard = lazy(() => import('./components/TacticsBoard'));
+const MatchDay = lazy(() => import('./components/MatchDay'));
+const VideoAnalyser = lazy(() => import('./components/VideoAnalyser'));
 
 export default function App() {
   return (
@@ -232,54 +234,60 @@ function MainAppContent() {
         </div>
       </header>
 
-      {/* Main Feature View */}
+      {/* Main Feature View with Suspense Lazy Loading */}
       <main className="tab-content">
-        {activeTab === 0 && (
-          <SquadHub 
-            squad={squad}
-            onAddPlayer={handleAddPlayer}
-            onEditPlayer={handleEditPlayer}
-            onImportPlayers={handleImportPlayers}
-            onRemovePlayer={handleRemovePlayer}
-            videoClips={videoClips}
-          />
-        )}
+        <Suspense fallback={
+          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            Loading Workstation Module...
+          </div>
+        }>
+          {activeTab === 0 && (
+            <SquadHub 
+              squad={squad}
+              onAddPlayer={handleAddPlayer}
+              onEditPlayer={handleEditPlayer}
+              onImportPlayers={handleImportPlayers}
+              onRemovePlayer={handleRemovePlayer}
+              videoClips={videoClips}
+            />
+          )}
 
-        {activeTab === 1 && (
-          <TrainingLab 
-            squad={squad}
-            subscriptionTier={subscriptionTier}
-            selectedCoachLevel={selectedCoachLevel}
-            activeRuleset={activeRuleset}
-            onSaveVideoClip={handleSaveVideoClip}
-          />
-        )}
+          {activeTab === 1 && (
+            <TrainingLab 
+              squad={squad}
+              subscriptionTier={subscriptionTier}
+              selectedCoachLevel={selectedCoachLevel}
+              activeRuleset={activeRuleset}
+              onSaveVideoClip={handleSaveVideoClip}
+            />
+          )}
 
-        {activeTab === 2 && (
-          <TacticsBoard 
-            squad={squad}
-            subscriptionTier={subscriptionTier}
-            activeMatchDef={effectiveMatchDef}
-          />
-        )}
+          {activeTab === 2 && (
+            <TacticsBoard 
+              squad={squad}
+              subscriptionTier={subscriptionTier}
+              activeMatchDef={effectiveMatchDef}
+            />
+          )}
 
-        {activeTab === 3 && (
-          <MatchDay 
-            squad={squad}
-            activeMatchDef={effectiveMatchDef}
-            activeRuleset={activeRuleset}
-            onSaveVideoClip={handleSaveVideoClip}
-          />
-        )}
+          {activeTab === 3 && (
+            <MatchDay 
+              squad={squad}
+              activeMatchDef={effectiveMatchDef}
+              activeRuleset={activeRuleset}
+              onSaveVideoClip={handleSaveVideoClip}
+            />
+          )}
 
-        {activeTab === 4 && (
-          <VideoAnalyser 
-            squad={squad}
-            videoClips={videoClips}
-            setVideoClips={setVideoClips}
-            activeRuleset={activeRuleset}
-          />
-        )}
+          {activeTab === 4 && (
+            <VideoAnalyser 
+              squad={squad}
+              videoClips={videoClips}
+              setVideoClips={setVideoClips}
+              activeRuleset={activeRuleset}
+            />
+          )}
+        </Suspense>
       </main>
 
       {/* Bottom Navigation Tab Bar */}

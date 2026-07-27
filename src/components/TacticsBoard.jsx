@@ -1,26 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-export default function TacticsBoard({ squad = [], subscriptionTier, activeMatchDef }) {
-  // Tier Gate Check
-  const isGated = subscriptionTier !== 'Ultra' && subscriptionTier !== 'Club';
-
-  if (isGated) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', textAlign: 'center', padding: '40px 20px' }}>
-        <h2 className="scoreboard-font" style={{ color: 'var(--color-tactics)' }}>Tactics Board</h2>
-        <div style={{ padding: '30px', background: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: '16px' }}>
-          <div className="badge badge-unresolved" style={{ marginBottom: '12px' }}>ULTRA TIER REQUIRED</div>
-          <h3>Interactive Cricket Pitch & Oval Canvas</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '400px', margin: '12px auto' }}>
-            Upgrade to the Ultra Tier to unlock 2D cricket pitch visualization, field setting presets, self-fading laser guides, and 11-player fielder token placements.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Active Tool: 'brush', 'arrow', 'laser', 'eraser'
-  const [tool, setTool] = useState('brush');
+export default function TacticsBoard({ _squad = [], _subscriptionTier, activeMatchDef }) {
   const canvasRef = useRef(null);
 
   // Correct 11 Fielding Player Tokens + 2 Batting Tokens Model
@@ -41,8 +21,6 @@ export default function TacticsBoard({ squad = [], subscriptionTier, activeMatch
     { id: 'b2', x: 500, y: 330, label: 'BAT 2', team: 'batter' }
   ]);
 
-  const [draggedTokenId, setDraggedTokenId] = useState(null);
-
   // Field Presets
   const applyPreset = (presetName) => {
     if (presetName === 'ATTACKING_SLIP_CORDON') {
@@ -53,10 +31,27 @@ export default function TacticsBoard({ squad = [], subscriptionTier, activeMatch
       }));
     } else if (presetName === 'T20_POWERPLAY') {
       setTokens(prev => prev.map(t => {
-        if (t.id === 'f8') return { ...t, x: 530, y: 500 }; // Long-off
-        if (t.id === 'f9') return { ...t, x: 470, y: 500 }; // Long-on
+        if (t.id === 'f8') return { ...t, x: 530, y: 500 };
+        if (t.id === 'f9') return { ...t, x: 470, y: 500 };
         return t;
       }));
+    }
+  };
+
+  // Keyboard Nudge Handler for Accessibility
+  const handleTokenKeyDown = (e, tokenId) => {
+    const step = e.shiftKey ? 20 : 5;
+    let dx = 0;
+    let dy = 0;
+
+    if (e.key === 'ArrowUp') dy = -step;
+    if (e.key === 'ArrowDown') dy = step;
+    if (e.key === 'ArrowLeft') dx = -step;
+    if (e.key === 'ArrowRight') dx = step;
+
+    if (dx !== 0 || dy !== 0) {
+      e.preventDefault();
+      setTokens(prev => prev.map(t => t.id === tokenId ? { ...t, x: Math.max(50, Math.min(950, t.x + dx)), y: Math.max(50, Math.min(550, t.y + dy)) } : t));
     }
   };
 
@@ -118,10 +113,10 @@ export default function TacticsBoard({ squad = [], subscriptionTier, activeMatch
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={() => applyPreset('ATTACKING_SLIP_CORDON')}>
+          <button type="button" className="btn btn-secondary" onClick={() => applyPreset('ATTACKING_SLIP_CORDON')}>
             🛡️ Attacking Slip Cordon
           </button>
-          <button className="btn btn-secondary" onClick={() => applyPreset('T20_POWERPLAY')}>
+          <button type="button" className="btn btn-secondary" onClick={() => applyPreset('T20_POWERPLAY')}>
             ⚡ T20 Powerplay
           </button>
         </div>
@@ -131,10 +126,14 @@ export default function TacticsBoard({ squad = [], subscriptionTier, activeMatch
       <div style={{ position: 'relative', width: '100%', height: '500px', backgroundColor: '#0e1310', borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--border-medium)' }}>
         <canvas ref={canvasRef} width={1000} height={600} style={{ width: '100%', height: '100%' }} />
 
-        {/* Render Tokens */}
+        {/* Render Accessible Fielder & Batter Tokens */}
         {tokens.map(token => (
           <div
             key={token.id}
+            tabIndex={0}
+            role="button"
+            aria-label={`${token.role || token.label} Token (Use arrow keys to move)`}
+            onKeyDown={(e) => handleTokenKeyDown(e, token.id)}
             style={{
               position: 'absolute',
               left: `${(token.x / 1000) * 100}%`,
@@ -151,8 +150,9 @@ export default function TacticsBoard({ squad = [], subscriptionTier, activeMatch
               alignItems: 'center',
               justifyContent: 'center',
               boxShadow: '0 4px 10px rgba(0,0,0,0.5)',
-              cursor: 'grab',
-              userSelect: 'none'
+              cursor: 'pointer',
+              userSelect: 'none',
+              outline: 'none'
             }}
           >
             {token.label}

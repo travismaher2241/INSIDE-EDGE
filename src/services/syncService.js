@@ -1,11 +1,5 @@
 import { safeStorageGet, safeStorageSet } from './storage';
 
-/**
- * Local Transaction Log & Offline Activity Ledger for Inside Edge
- * Local-First Product Architecture: Retains explicit audit logs of all domain mutations.
- * Never clears queued operations without real acknowledged remote persistence.
- */
-
 const SYNC_QUEUE_KEY = 'sync_queue';
 
 export function getSyncQueue() {
@@ -35,15 +29,12 @@ export function clearSyncQueue() {
   return true;
 }
 
-export async function flushSyncQueue(isOnline = false) {
+export async function flushSyncQueue(_isOnline = false) {
   const queue = getSyncQueue();
   if (queue.length === 0) {
     return { success: true, syncedCount: 0, mode: 'LOCAL_ONLY_STATION' };
   }
 
-  // Local-First Workstation Boundary:
-  // Retain all transaction records in the local ledger.
-  // Do NOT clear or delete uncommitted offline records without an active remote backend.
   return {
     success: true,
     syncedCount: 0,

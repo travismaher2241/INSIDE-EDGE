@@ -3,14 +3,13 @@ import { COHORTS } from '../config/cohorts';
 import { VENUE_MODELS } from '../config/venues';
 import { ACTIVITY_CATEGORIES } from '../config/activityCategories';
 import { generateTrainingPlan, calculateBattingCapacity } from '../engine/deterministicPlanner';
-import { searchActivities } from '../data/retrievalIndex';
 
 export default function TrainingLab({
   squad = [],
-  subscriptionTier,
+  _subscriptionTier,
   selectedCoachLevel,
   activeRuleset,
-  onSaveVideoClip
+  _onSaveVideoClip
 }) {
   // Product Flow Steps: 'attendance' | 'parameters' | 'review' | 'active_guided' | 'history'
   const [step, setStep] = useState('attendance');
@@ -46,11 +45,10 @@ export default function TrainingLab({
   const [activePlan, setActivePlan] = useState(null);
   const [generatedDrills, setGeneratedDrills] = useState([]);
   const [failureDiagnostics, setFailureDiagnostics] = useState(null);
-  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
   // Active Guided Coaching State
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [timerSeconds] = useState(0);
   const [currentRotationIndex, setCurrentRotationIndex] = useState(0);
 
   // Late Arrival Modal State

@@ -5,10 +5,10 @@ import { parseRosterFile } from '../services/rosterParser';
 export default function SquadHub({
   squad = [],
   onAddPlayer,
-  onEditPlayer,
+  _onEditPlayer,
   onImportPlayers,
   onRemovePlayer,
-  videoClips = []
+  _videoClips = []
 }) {
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [roleFilter, setRoleFilter] = useState('ALL');

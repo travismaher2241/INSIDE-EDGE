@@ -1,8 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { COHORTS } from '../config/cohorts';
-import { COACH_LEVELS } from '../config/coachLevels';
-import { BASE_MATCH_DEFINITIONS } from '../config/matchDefinitions';
-import { SAFETY_FRAMEWORK } from '../config/safety';
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
 import { searchActivities } from '../data/retrievalIndex';
 import { generateTrainingPlan, REJECTION_CODES } from '../engine/deterministicPlanner';

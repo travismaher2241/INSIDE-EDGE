@@ -18,7 +18,7 @@ async function getDB() {
             }
           }
         });
-      } catch (e) {
+      } catch {
         return null;
       }
     })();
@@ -33,7 +33,7 @@ export async function saveVideoBlob(clipId, blob) {
       await db.put(STORE_NAME, blob, clipId);
     }
     return true;
-  } catch (e) {
+  } catch {
     return true;
   }
 }
@@ -47,7 +47,7 @@ export async function getVideoBlob(clipId) {
       return await db.get(STORE_NAME, clipId);
     }
     return null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -59,7 +59,7 @@ export async function deleteVideoBlob(clipId) {
       await db.delete(STORE_NAME, clipId);
     }
     return true;
-  } catch (e) {
+  } catch {
     return true;
   }
 }

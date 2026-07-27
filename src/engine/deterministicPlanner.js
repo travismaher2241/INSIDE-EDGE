@@ -7,7 +7,6 @@ export { calculateBattingCapacity, REJECTION_CODES };
 
 /**
  * Unified Deterministic Training Planner Entry Point
- * Routes to Nets Session Architecture or Standard Session Template Planner.
  */
 export function generateTrainingPlan(params) {
   const { sessionType = 'STANDARD_SESSION' } = params;
@@ -63,7 +62,7 @@ function generateStandardTrainingPlan({
           slotType: blockDef.slotType,
           cohortId,
           selectedFocusIds,
-          coachLevelId,
+          _coachLevelId: coachLevelId,
           venueId,
           equipmentAvailable,
           participantCount: effectiveStationParticipants,
@@ -117,7 +116,7 @@ function generateStandardTrainingPlan({
         slotType: blockDef.slotType,
         cohortId,
         selectedFocusIds,
-        coachLevelId,
+        _coachLevelId: coachLevelId,
         venueId,
         equipmentAvailable,
         participantCount,
@@ -160,11 +159,11 @@ function generateStandardTrainingPlan({
   const focusCoverage = analyzeFocusCoverage({
     selectedFocusIds,
     cohortId,
-    coachLevelId,
+    _coachLevelId: coachLevelId,
     venueId,
-    equipmentAvailable,
+    _equipmentAvailable: equipmentAvailable,
     participantCount,
-    activeRuleset
+    _activeRuleset: activeRuleset
   });
 
   const isComplete = populatedBlocks.length === template.requiredBlocks.length;
@@ -177,22 +176,22 @@ function generateStandardTrainingPlan({
       venueId,
       participantCount,
       cohortId,
-      requestedDuration,
-      template,
+      _requestedDuration: requestedDuration,
+      _template: template,
       rejectionSummary,
       activeRuleset
     });
 
     const suggestions = generateActionableSuggestions({
       venueId,
-      selectedFocusIds,
+      _selectedFocusIds: selectedFocusIds,
       focusCoverage,
-      participantCount,
-      cohortId,
-      coachLevelId,
+      _participantCount: participantCount,
+      _cohortId: cohortId,
+      _coachLevelId: coachLevelId,
       requestedDuration,
       rejectionSummary,
-      activeRuleset
+      _activeRuleset: activeRuleset
     });
 
     return {
@@ -250,7 +249,7 @@ function evaluateCandidatesForSlot({
   slotType,
   cohortId,
   selectedFocusIds = [],
-  coachLevelId,
+  _coachLevelId,
   venueId,
   equipmentAvailable = [],
   participantCount,
@@ -400,11 +399,11 @@ function evaluateCandidatesForSlot({
 function analyzeFocusCoverage({
   selectedFocusIds = [],
   cohortId,
-  coachLevelId,
+  _coachLevelId,
   venueId,
-  equipmentAvailable = [],
+  _equipmentAvailable = [],
   participantCount,
-  activeRuleset
+  _activeRuleset
 }) {
   return selectedFocusIds.map(focusId => {
     const matchingActs = STRUCTURED_ACTIVITIES.filter(act => {
@@ -466,8 +465,8 @@ function buildPrimaryReasons({
   venueId,
   participantCount,
   cohortId,
-  requestedDuration,
-  template,
+  _requestedDuration,
+  _template,
   rejectionSummary,
   activeRuleset
 }) {
@@ -503,14 +502,14 @@ function buildPrimaryReasons({
 
 function generateActionableSuggestions({
   venueId,
-  selectedFocusIds,
+  _selectedFocusIds,
   focusCoverage,
-  participantCount,
-  cohortId,
-  coachLevelId,
+  _participantCount,
+  _cohortId,
+  _coachLevelId,
   requestedDuration,
   rejectionSummary,
-  activeRuleset
+  _activeRuleset
 }) {
   const suggestions = [];
 

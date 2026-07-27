@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateTrainingPlan, REJECTION_CODES } from '../engine/deterministicPlanner';
-import { generateNetsSessionPlan, calculateBattingCapacity } from '../engine/cricketNetsPlanner';
+import { generateTrainingPlan } from '../engine/deterministicPlanner';
+import { generateNetsSessionPlan } from '../engine/cricketNetsPlanner';
 import { DEFAULT_ROSTER } from '../data/defaultRoster';
 
 describe('Phase 2 - Training Planners Verification & Invariants', () => {

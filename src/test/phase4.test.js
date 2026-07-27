@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { processUploadedRuleDocument, getEffectiveMatchDefinition } from '../services/competitionRulesEngine';
+import { processUploadedRuleDocument } from '../services/competitionRulesEngine';
 
 describe('Phase 4 - Rules Ingestion & Safety Core', () => {
 

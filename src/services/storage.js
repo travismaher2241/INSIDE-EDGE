@@ -14,7 +14,7 @@ function maskSensitiveText(text) {
   if (!text) return '';
   try {
     return 'SEC:' + btoa(encodeURIComponent(text));
-  } catch (e) {
+  } catch {
     return text;
   }
 }
@@ -24,7 +24,7 @@ function unmaskSensitiveText(masked) {
   if (!masked.startsWith('SEC:')) return masked;
   try {
     return decodeURIComponent(atob(masked.substring(4)));
-  } catch (e) {
+  } catch {
     return masked;
   }
 }
@@ -65,7 +65,7 @@ export function safeStorageRemove(key) {
     localStorage.removeItem(STORAGE_PREFIX + key);
     localStorage.removeItem(key);
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }

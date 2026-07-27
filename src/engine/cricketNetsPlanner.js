@@ -1,12 +1,7 @@
 import { STRUCTURED_ACTIVITIES } from '../data/structuredActivityRecords';
-import { REJECTION_CODES } from '../config/rejectionCodes';
 
 /**
  * Cricket Nets Session Architecture & Single-Turn Batting Rotation Engine
- *
- * Inside Edge V1 Business Rule:
- * NO PLAYER BATS TWICE IN THE SAME GENERATED NETS SESSION.
- * ONE DESIGNATED BATTER = ONE BATTING TURN PER GENERATED NETS SESSION.
  */
 
 export function calculateBattingCapacity({
@@ -44,19 +39,19 @@ export function calculateBattingCapacity({
 export function generateNetsSessionPlan({
   numberOfNets = 2,
   totalDuration = 90,
-  coachCount = 2,
-  bowlingMachineAvailable = false,
+  _coachCount = 2,
+  _bowlingMachineAvailable = false,
   openFieldAvailable = true,
-  equipmentAvailable = [],
+  _equipmentAvailable = [],
   batterFocuses = ['Batting'],
   bowlerFocuses = ['Pace Bowling'],
   fieldingFocuses = ['Ground Fielding'],
-  cohortId = 'U13_JUNIOR',
-  coachLevelId = 'DEVELOPMENT_LEVEL_1',
+  _cohortId = 'U13_JUNIOR',
+  _coachLevelId = 'DEVELOPMENT_LEVEL_1',
   participantCount = 12,
   squad = [],
   requestedBattingMinutesPerPlayer = null,
-  activeRuleset = null
+  _activeRuleset = null
 }) {
   // Input Validation
   if (!participantCount || participantCount <= 0) {
@@ -94,7 +89,7 @@ export function generateNetsSessionPlan({
 
   const effectiveBattingMinutes = requestedBattingMinutesPerPlayer || capacity.suggestedBattingMinutes;
 
-  // Validation: Check if 1 batting allocation per batter can fit within available net time
+  // Validation
   const totalRequestedNetMinutes = effectiveBattingMinutes * participantCount;
   if (totalRequestedNetMinutes > capacity.totalNetMinutes || effectiveBattingMinutes < 5) {
     return {
@@ -141,7 +136,7 @@ export function generateNetsSessionPlan({
   const stationCount = requiresFieldingStation ? numberOfNets + 1 : numberOfNets;
   const rotationCount = stationCount;
 
-  // Split participants into groups (supports odd numbers)
+  // Split participants into groups
   const groups = [];
   const baseGroupSize = Math.floor(participantCount / rotationCount);
   let remainder = participantCount % rotationCount;
@@ -189,15 +184,12 @@ export function generateNetsSessionPlan({
       const primaryBatterFocus = batterFocuses[nIdx % batterFocuses.length] || 'Front Foot Drive';
       const primaryBowlerFocus = bowlerFocuses[nIdx % bowlerFocuses.length] || 'Pace Seam Control';
 
-      // Pick all unbatted members of the assigned group for this net visit
       const groupUnbatted = assignedGroup.players.filter(pid => {
         const p = playerMap.get(pid);
         return p && !p.hasBatted;
       });
 
       const battersToAssign = [...groupUnbatted];
-
-      // Mark assigned batters as having batted (EXACTLY 1 ALLOCATION)
       const batters = [];
       const battingOrder = [];
 
@@ -226,7 +218,6 @@ export function generateNetsSessionPlan({
         }
       });
 
-      // Remaining group members act as Bowlers / Keeper
       const bowlerPids = assignedGroup.players.filter(pid => {
         const p = playerMap.get(pid);
         return !batters.includes(p.name);
@@ -234,7 +225,6 @@ export function generateNetsSessionPlan({
       const bowlers = bowlerPids.map(pid => playerMap.get(pid)?.name || pid);
       const keeper = bowlers.length >= 2 ? bowlers[bowlers.length - 1] : null;
 
-      // Productive secondary bowling activity when net batters complete their turn
       const secondaryActivity = {
         id: `BOWLING_WORK_${nIdx + 1}`,
         title: `${primaryBowlerFocus} Target Execution`,
@@ -262,7 +252,6 @@ export function generateNetsSessionPlan({
       });
     }
 
-    // Assign group to Off-Net Fielding Station if active
     if (requiresFieldingStation) {
       const fieldingGroupIndex = (rIdx + numberOfNets) % rotationCount;
       const fieldingGroup = groups[fieldingGroupIndex];
@@ -286,7 +275,6 @@ export function generateNetsSessionPlan({
     });
   }
 
-  // 6. HARD VALIDATION RULE: Every required batter MUST have EXACTLY ONE batting allocation
   const unallocatedPlayers = players.filter(p => p.requiresBattingTime && p.battingAppearances === 0);
   const repeatBatters = players.filter(p => p.battingAppearances > 1);
 
